@@ -1,0 +1,19 @@
+{
+  "name": "share-tool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "本地模拟 Trilium Notes 分享功能：用本地主题文件 + ETAPI 真实数据渲染 share 页面，改完刷新即见",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "state": "node tools/state.js",
+    "push": "node tools/push-theme.js"
+  },
+  "dependencies": {
+    "ejs": "^3.1.10"
+  }
+}
