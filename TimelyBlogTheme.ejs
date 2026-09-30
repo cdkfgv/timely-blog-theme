@@ -335,7 +335,7 @@ var year = new Date().getFullYear();
 
     <!-- ==================== 顶部导航 ==================== -->
     <header class="sticky top-0 z-50 h-14 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border-b border-[#f5f5f4] dark:border-zinc-700/50 shadow-sm dark:shadow-zinc-950/20">
-      <div class="max-w-[92.5rem] mx-auto px-5 sm:px-8 xl:px-10 h-full flex items-center justify-between">
+      <div class="max-w-[98rem] mx-auto px-5 sm:px-8 xl:px-10 h-full flex items-center justify-between">
         <a href="./" class="flex items-center gap-2 text-base font-bold text-stone-800 dark:text-zinc-100 hover:text-amber-600 dark:hover:text-accent transition-colors">
           <i class="fa-solid fa-terminal text-amber-600 dark:text-accent"></i>
           <span><%- esc(site.name) %></span>
@@ -379,7 +379,7 @@ var year = new Date().getFullYear();
            整体不居中」。收窄到 1480px 后整块（正文+间距+侧栏）左右各留白 60px 对称。
            ⚠️ 这个值被 CSS 里 aside.aside-fixed 的 left / top 公式引用，改这里要同步改那边
               （smoke L 段有守卫会报错）。 */ %>
-    <div class="flex-1 flex flex-col max-w-[92.5rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14">
+    <div class="flex-1 flex flex-col max-w-[98rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14">
       <div class="flex-1 grid lg:grid-cols-[1fr_270px] lg:items-start gap-10 xl:gap-12">
         <main id="main" class="min-w-0">
 <% if (isPostPage) { %>
@@ -391,7 +391,7 @@ var year = new Date().getFullYear();
                ⚠️ 垂直**上**内边距已去掉（py-10 → pt-0）：它会让正文比右侧侧栏低 40px，
                   顶部明显错位。去掉后正文顶边 = 外层容器的 py-10 → 与侧栏同为 96px。
                   底部 pb-28 md:pb-14 保留不变。 */ %>
-          <div class="max-w-[92.5rem] mx-auto w-full px-5 sm:px-8 xl:px-10 pt-0 pb-28 md:pb-14 dark:bg-zinc-900/50 rounded-xl">
+          <div class="max-w-[98rem] mx-auto w-full px-5 sm:px-8 xl:px-10 pt-0 pb-28 md:pb-14 dark:bg-zinc-900/50 rounded-xl">
             <article>
               <% if (!isFixed) { %>
               <header class="mb-8 pb-6 border-b border-stone-200 dark:border-zinc-800">
@@ -693,7 +693,7 @@ var year = new Date().getFullYear();
     <!-- ==================== 页脚 ==================== -->
     <div class="mt-auto">
       <footer class="border-t border-stone-200 dark:border-zinc-800 py-4">
-        <div class="max-w-[92.5rem] mx-auto px-5 sm:px-8 xl:px-10 flex items-center justify-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
+        <div class="max-w-[98rem] mx-auto px-5 sm:px-8 xl:px-10 flex items-center justify-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
           <div>© <%= year %> <%- esc(site.name) %>. All rights reserved.</div>
           <% if (site.icp) { %>
           <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" class="text-sky-600 dark:text-sky-400 hover:underline"><%- esc(site.icp) %></a>
