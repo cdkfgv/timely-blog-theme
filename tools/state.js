@@ -16,7 +16,7 @@ if (missing.length) {
 }
 
 const store = new TriliumStore(api, {
-  rootNoteId: config.rootNoteId || (config.mock ? MOCK_ROOT_NOTE_ID : ''),
+  rootNoteId: config.mock ? MOCK_ROOT_NOTE_ID : config.rootNoteId,
   ttl: 0,
   depth: config.prefetchDepth,
   maxNotes: config.maxNotes,

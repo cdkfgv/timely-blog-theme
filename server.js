@@ -17,7 +17,8 @@ const api = config.mock
   ? createMockEtapi()
   : createEtapi({ baseUrl: config.triliumUrl, token: config.etapiToken });
 
-const rootNoteId = config.rootNoteId || (config.mock ? MOCK_ROOT_NOTE_ID : '');
+// 假数据模式下强制使用 mock 的根笔记（.env 里可能填着真实 ROOT_NOTE_ID，会查不到）
+const rootNoteId = config.mock ? MOCK_ROOT_NOTE_ID : config.rootNoteId;
 
 const store = new TriliumStore(api, {
   rootNoteId,
@@ -121,7 +122,7 @@ async function handlePage(req, res, { shareId, fresh }) {
   try {
     await store.ensure(fresh);
     if (!store.root) {
-      throw new Error(`找不到根笔记 ${config.rootNoteId}：请确认 ROOT_NOTE_ID 是否正确、该笔记是否已共享。`);
+      throw new Error(`找不到根笔记 ${rootNoteId}：请确认 ROOT_NOTE_ID 是否正确、该笔记是否已共享。`);
     }
 
     const note = shareId ? await store.resolve(shareId) : store.root;
