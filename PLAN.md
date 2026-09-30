@@ -24,7 +24,8 @@
 - [x] `git init` + 首个提交 `7f3e411`
 - [x] 假数据端到端验证：首页/详情/固定页 200，草稿排除，链接/附件/图片改写正确，附件代理 MIME 正确，目录穿越被挡，SSE 触达
 - [x] 复现 `</script>` 注入故障（mock 用例 `post0000005`）
-- [ ] 填 `.env` 三项（`TRILIUM_URL` / `ETAPI_TOKEN` / `ROOT_NOTE_ID`）并把 `ETAPI_MOCK` 改 `0`，跑通真实数据
+- [x] 填 `.env` 三项（`TRILIUM_URL` / `ETAPI_TOKEN` / `ROOT_NOTE_ID`）并把 `ETAPI_MOCK` 改 `0`，跑通真实数据
+  - 实测（2026-09-30）：真实库 `https://note.yihwang.top` / 根笔记 `p3wjHYobxcWH`，`npm run smoke` **43 项全通过**
 
 ---
 
@@ -108,19 +109,37 @@
 ## 阶段 4 · 收尾优化
 
 > 4.1 ~ 4.5 是「Vue 时代」的问题，阶段 3 去 Vue 时已顺带解决，保留记录。
+> 4.6 ~ 4.9 已完成（2026-09-30）。验证：`npm run smoke` **58 项**（mock·local）/ **57 项**（mock·as-is）/ **43 项**（真实库），
+> `npm run dom` **46 项**，`npm run script-test` **24 项**，全通过。
 
 - [x] **4.1 派生数据只算一次** — 聚合改为模板里算一次（`tagCount` / `catCount` / `archive`），导航、侧边栏、标签页、归档页共用
 - [x] **4.2 全局状态统一** — `G` 全局对象（ref/reactive 混用）整体删除；状态落在 DOM（`hidden` / `aria-expanded` / `aria-current` / `body[data-view]`）
 - [x] **4.3 归档去重 O(n²) → Set**；`collect()` 统一用 `getVisibleChildNotes`（原实现子节点用 `getChildNotes`，会带出隐藏笔记）
 - [x] **4.4 删首页骨架屏假延迟** — SSR 后首屏即内容，`setTimeout(300)` 与骨架屏标记一并删除
 - [x] **4.5 observer / listener 生命周期** — 不再有「路由切换销毁重建组件」的场景（页面级渲染），IntersectionObserver 只在一页内创建一次；scroll 监听已合并为单个 rAF 节流
-- [ ] **4.6 补 OG / Twitter meta** — 官方模板按笔记 label 生成（`shareOpenGraphURL` / `shareDescription` / `shareOpenGraphImage`），现在社交分享无预览图
-- [ ] **4.7 `#shareHiddenFromTree`** — 给模板/CSS/JS 笔记挂上，不出现在导航
-- [ ] **4.8 `#shareFavicon` 关系** — 指向文件笔记，替代 emoji data-URI
-- [ ] **4.9 `templateScript.js` 修三处**
-  - 摘要提取没先剥 `<pre>/<code>/<script>` 块 → 代码块内容污染前 120 字
-  - `\s+ → ''` 会把英文单词连成一坨（中文可接受，至少补注释或改按语言分支）
-  - `note.save()` 无条件执行 → 挪进 `publishStatus === 'true'` 分支
+- [x] **4.6 补 OG / Twitter meta** — 按 Trilium 官方属性实现，模板侧自己算（默认 `page.ejs` 的特征不继承）：
+  | 属性 | 输出 |
+  |---|---|
+  | `#shareDescription` | `<meta name="description">` + `og:description` + `twitter:description`（无则：文章页用 `#blogSummary`，列表页用 `#siteDescription`） |
+  | `#shareOpenGraphURL` | `og:url` + `twitter:url` |
+  | `#shareOpenGraphDomain` | `twitter:domain` |
+  | `#shareOpenGraphImage` / `~shareOpenGraphImage` | `og:image` + `twitter:image`；label 值原样用，relation 指向 File 笔记 → `api/notes/<id>/download`；都为空时回退文章 `#headerImage` |
+  | `#shareOpenGraphColor` | `theme-color` |
+  | `#shareDisallowRobotIndexing` | `<meta name="robots" content="noindex, follow">`（只有该笔记有） |
+  | 新增 `#siteUrl` | `og:image` / `og:url` 的相对地址按它补成绝对地址（OG 要求绝对 URL），未设则原样输出 |
+  | 其余 | `og:site_name` / `og:title` / `og:type`（文章 article、列表 website）/ `twitter:card`（有图 `summary_large_image`，无图 `summary`）/ `twitter:title` |
+- [x] **4.7 `#shareHiddenFromTree`** — 清单已写进 EJS 顶部（EJS 注释，不进页面字节）：模板 / CSS / JS / favicon 四份笔记都挂上。**Trilium 侧需你手动加标签**
+- [x] **4.8 `~shareFavicon` 关系** — 指向 File 笔记 → `api/notes/<id>/download`；优先级 `#shareFavicon`（完整 URL）> `~shareFavicon` 关系 > 内置 emoji data-URI；需勾「可继承」才能在各子页面生效
+- [x] **4.9 `templateScript.js` 修三处** — 重写：
+  - 摘要先剥 `<script|style|pre|code|figure|table|svg>` 整块 + 块级标签转空格，代码不再污染前 120 字
+  - 空白归一改语言感知：`([中文])[\s]+([中文])` → 直接吃掉，其余压成单空格（英文不再被连成一坨）
+  - `note.save()` 挪进 `publish === 'true'` 分支；`blogDate` 判空再写；摘要按需加省略号（≤120 字不加）
+  - 顺带：`&nbsp;` 与常见实体还原、剥离顺序修正
+  - 新增 `npm run script-test`（24 项）：用 `new Function('api', src)` + 打桩 note 复刻 Trilium 脚本环境
+- [x] **4.6' 双重转义 BUG（新发现，P1）** — 全量 `<%= esc(x) %>` 会被 EJS 再转义一次（`&` → `&amp;`），
+  标题/描述含 `&`、`<`、`'` 时页面出现 `&amp;amp;` / `&amp;#39;`，favicon data-URI 直接变 `&amp;lt;svg` 而失效。
+  修法：所有 `<%= esc(...) %>` / `<%= enc(...) %>` → `<%- esc(...) %>` / `<%- enc(...) %>`（共 40+ 处）。
+  smoke 加双重转义守卫 + mock 里塞入含 `& < >` 的站点简介与文章标题做正向断言。
 - [ ] **4.10 目录结构（可选，B 方案）** — `TimelyBlogTheme/src/` 放三个主题文件，`文章模版.html` / `templateScript.js` 留根；代价是 `.env` 加 `EJS_FILE=src/...` 等两行
 - [ ] **4.11 主题 JS 是 `type="module"` 但内容为传统写法** — 阶段③ 切 CDN 时 `<script src>` 不带 module，两者都能跑（已用 `readyState` 判断）；若保留 module，注意 Trilium 侧 JS 笔记 MIME 必须为 `text/javascript`
 
@@ -136,6 +155,9 @@
 | `#shareOmitDefaultCss` | 已用上，fully custom 不需要默认样式 |
 | `templateScript.js` 整体思路 | **保持** — 属性变更脚本自动填摘要/日期，已是 Trilium 地道用法 |
 | Svelte / Solid | 不建议 — 需 Node 构建链，Trilium 没有 |
+| `~shareHtml` / `#shareHtmlLocation` | **不用** — 官方新特性（注入 head/body/content 片段），本主题已能改模板源码，多一层属性反而难维护 |
+| `~shareLogo` / `#shareLogoWidth/Height` / `#shareRootLink` | **不适用** — 这些只作用于**默认主题**左侧树的 logo；本模板自绘导航，用 `#bloggerAvatarUrl` 即可 |
+| `#shareCredentials` / `#shareIndex` / `#shareExternalLink` / `#shareRaw` | **不用** — 与本站形态无关（免登录公开博客 / 无分享索引页 / 无外链跳转 / 无 raw 输出） |
 
 ---
 

@@ -5,6 +5,23 @@
    数据准备（全部在服务端完成）
    模板只做「收集数据 → 输出 HTML」；客户端脚本只负责交互，不再渲染内容。
    ====================================================================== */
+
+/* ----------------------------------------------------------------------
+   Trilium 侧需人工设置的属性清单（模板不会自动生效，漏设只是少功能不报错）
+   分享根笔记：
+     ~shareTemplate        指向本 Code 笔记（application/x-ejs）
+     #shareRoot            标记为分享根
+     #shareOmitDefaultCss  不加载默认样式
+     #siteName / #siteDescription / #siteUrl / #siteIcp
+     #bloggerName / #bloggerMotto / #bloggerBio / #bloggerAvatarUrl
+     #bloggerEmail / #bloggerGithub
+     ~shareCss / ~shareJs  （勾「可继承」）主题 CSS / JS Code 笔记
+     ~shareFavicon         （勾「可继承」）→ File 笔记
+   以上各笔记（模板 / CSS / JS / favicon）建议都加 #shareHiddenFromTree，避免出现在导航树。
+   文章笔记：#publish=true / #blogDate / #blogSummary / #blogCategory / #blogTags / #headerImage
+   ---------------------------------------------------------------------- */
+%>
+<%
 var rootNote = subRoot.note;
 var MAX_DEPTH = 5;
 var MONTHS = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
@@ -144,15 +161,73 @@ function safeJson(v) {
     .replace(/[<>&\u2028\u2029]/g, function (c) { return JSON_ESCAPE[c]; });
 }
 
+/* ---- 分享元信息：OG / Twitter / favicon / noindex ----
+   这些都是 Trilium 官方属性，但**默认 page.ejs 的实现不继承**（自定义模板下要自己实现）：
+     #shareDescription            描述文案（无则：文章页用 blogSummary，列表页用 siteDescription）
+     #shareOpenGraphURL           og:url / twitter:url
+     #shareOpenGraphDomain        twitter:domain
+     #shareOpenGraphImage         og:image；label 值原样使用，relation 则指向图片笔记
+     #shareOpenGraphColor         theme-color
+     #shareDisallowRobotIndexing  noindex, follow
+     ~shareFavicon                关系 → File 笔记（ico/svg/png） */
+function relationNoteId(name) {
+  var list = note.getRelations(name);
+  if (!list.length && rootNote.noteId !== note.noteId) list = rootNote.getRelations(name);
+  return list.length ? String(list[0].value) : '';
+}
+function hostedAssetUrl(name) {
+  var id = relationNoteId(name);
+  return id ? 'api/notes/' + id + '/download' : '';
+}
+
+var siteUrl = String(rootNote.getLabelValue('siteUrl') || '').replace(/\/+$/, '');
+/* og:image 要求绝对地址；填了 #siteUrl 才做拼接，否则原样输出 */
+function absoluteUrl(u) {
+  if (!u || !siteUrl || /^(https?:)?\/\//i.test(u) || /^data:/i.test(u)) return u;
+  return siteUrl + '/' + String(u).replace(/^\.?\//, '');
+}
+
+var ogDescription = note.getLabelValue('shareDescription') ||
+  (isPostPage ? (note.getLabelValue('blogSummary') || site.description) : site.description);
+var ogUrlRaw = note.getLabelValue('shareOpenGraphURL') || '';
+var ogDomain = note.getLabelValue('shareOpenGraphDomain') || '';
+var ogColor = note.getLabelValue('shareOpenGraphColor') || '';
+var ogImage = note.getLabelValue('shareOpenGraphImage') || hostedAssetUrl('shareOpenGraphImage') ||
+  (isPostPage ? (note.getLabelValue('headerImage') || '') : '');
+var ogUrl = absoluteUrl(ogUrlRaw);
+var ogImageUrl = absoluteUrl(ogImage);
+var noIndex = note.hasLabel('shareDisallowRobotIndexing') &&
+  note.getLabelValue('shareDisallowRobotIndexing') !== 'false';
+/* favicon 优先级：label（完整 URL） > ~shareFavicon 关系 > 内置 emoji data-URI */
+var faviconHref = note.getLabelValue('shareFavicon') || hostedAssetUrl('shareFavicon') ||
+  'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%220.9em%22 font-size=%2290%22>🐠</text></svg>';
+
 var year = new Date().getFullYear();
 %>
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><%= isPostPage ? esc(note.title) + ' - ' + esc(site.name) : esc(site.name) %></title>
-  <meta name="description" content="<%= esc(site.description) %>">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%220.9em%22 font-size=%2290%22>🐠</text></svg>">
+  <title><%- isPostPage ? esc(note.title) + ' - ' + esc(site.name) : esc(site.name) %></title>
+  <meta name="description" content="<%- esc(ogDescription) %>">
+  <% if (noIndex) { %><meta name="robots" content="noindex, follow">
+  <% } %><% if (ogColor) { %><meta name="theme-color" content="<%- esc(ogColor) %>">
+  <% } %>
+  <!-- OpenGraph / Twitter —— 由上方 #shareDescription / #shareOpenGraph* 属性驱动 -->
+  <meta property="og:site_name" content="<%- esc(site.name) %>">
+  <meta property="og:title" content="<%- esc(note.title) %>">
+  <meta property="og:description" content="<%- esc(ogDescription) %>">
+  <meta property="og:type" content="<%= isPostPage ? 'article' : 'website' %>">
+  <% if (ogUrl) { %><meta property="og:url" content="<%- esc(ogUrl) %>">
+  <% } %><% if (ogImageUrl) { %><meta property="og:image" content="<%- esc(ogImageUrl) %>">
+  <% } %><meta name="twitter:card" content="<%= ogImageUrl ? 'summary_large_image' : 'summary' %>">
+  <meta name="twitter:title" content="<%- esc(note.title) %>">
+  <meta name="twitter:description" content="<%- esc(ogDescription) %>">
+  <% if (ogImageUrl) { %><meta name="twitter:image" content="<%- esc(ogImageUrl) %>">
+  <% } %><% if (ogUrl) { %><meta name="twitter:url" content="<%- esc(ogUrl) %>">
+  <% } %><% if (ogDomain) { %><meta name="twitter:domain" content="<%- esc(ogDomain) %>">
+  <% } %>
+  <link rel="icon" href="<%- esc(faviconHref) %>">
   <link rel="preconnect" href="https://cdn.jsdmirror.com" crossorigin>
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
   <link rel="preconnect" href="https://www.unpkg.com" crossorigin>
@@ -199,7 +274,7 @@ var year = new Date().getFullYear();
 </head>
 
 <body class="min-h-screen bg-stone-50 dark:bg-zinc-950 dark:text-zinc-100 font-sans antialiased"
-      data-view="home" data-site-name="<%= esc(site.name) %>">
+      data-view="home" data-site-name="<%- esc(site.name) %>">
   <div class="fixed inset-0 -z-10 overflow-hidden">
     <div class="absolute inset-0 bg-gradient-to-br from-amber-50/60 via-stone-100/40 to-orange-50/40"></div>
     <div class="absolute top-0 left-1/4 w-96 h-96 bg-amber-200/30 rounded-full blur-3xl"></div>
@@ -221,7 +296,7 @@ var year = new Date().getFullYear();
       <div class="max-w-[100rem] mx-auto px-5 sm:px-8 xl:px-10 h-full flex items-center justify-between">
         <a href="./" class="flex items-center gap-2 text-base font-bold text-stone-800 dark:text-zinc-100 hover:text-amber-600 dark:hover:text-accent transition-colors">
           <i class="fa-solid fa-terminal text-amber-600 dark:text-accent"></i>
-          <span><%= esc(site.name) %></span>
+          <span><%- esc(site.name) %></span>
         </a>
         <div class="flex items-center gap-1">
           <nav class="site-nav hidden md:flex items-center gap-0.5 mr-2">
@@ -232,8 +307,8 @@ var year = new Date().getFullYear();
               </button>
               <div data-dropdown-menu hidden class="absolute top-full left-0 mt-1 min-w-48 bg-white dark:bg-zinc-900 border border-[#f5f5f4] dark:border-zinc-700 rounded-xl shadow-lg py-2 z-50 max-h-80 overflow-y-auto">
                 <% if (catList.length) { catList.forEach(function (c) { %>
-                <a href="./#/category/<%= enc(c.name) %>" class="flex items-center justify-between px-3 py-2 mx-1 rounded-lg text-sm text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 hover:text-amber-600 dark:hover:text-accent group transition-colors">
-                  <span class="truncate flex-1 mr-2"><%= esc(c.name) %></span>
+                <a href="./#/category/<%- enc(c.name) %>" class="flex items-center justify-between px-3 py-2 mx-1 rounded-lg text-sm text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 hover:text-amber-600 dark:hover:text-accent group transition-colors">
+                  <span class="truncate flex-1 mr-2"><%- esc(c.name) %></span>
                   <span class="text-xs font-medium px-1.5 py-0.5 rounded-full bg-stone-100 dark:bg-zinc-800 text-stone-400 dark:text-zinc-400 group-hover:bg-amber-100 group-hover:text-amber-600 dark:group-hover:bg-accent/10 dark:group-hover:text-accent transition-colors shrink-0"><%= c.count %></span>
                 </a>
                 <% }); } else { %>
@@ -266,17 +341,17 @@ var year = new Date().getFullYear();
             <article>
               <% if (!isFixed) { %>
               <header class="mb-8 pb-6 border-b border-stone-200 dark:border-zinc-800">
-                <h1 class="text-2xl md:text-3xl font-bold text-stone-800 dark:text-zinc-100 mb-4 leading-tight"><%= esc(note.title) %></h1>
+                <h1 class="text-2xl md:text-3xl font-bold text-stone-800 dark:text-zinc-100 mb-4 leading-tight"><%- esc(note.title) %></h1>
                 <div class="flex flex-wrap items-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
-                  <span><i class="fa-regular fa-calendar mr-1"></i><%= esc(postDate) %></span>
+                  <span><i class="fa-regular fa-calendar mr-1"></i><%- esc(postDate) %></span>
                   <% if (postCategory) { %>
-                  <a href="./#/category/<%= enc(postCategory) %>" class="px-2 py-1 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs font-medium"><%= esc(postCategory) %></a>
+                  <a href="./#/category/<%- enc(postCategory) %>" class="px-2 py-1 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs font-medium"><%- esc(postCategory) %></a>
                   <% } %>
                   <% if (postTags.length) { %>
                   <div class="flex items-center gap-2">
                     <i class="fa-solid fa-tags text-xs"></i>
                     <% postTags.forEach(function (t) { %>
-                    <a href="./#/tag/<%= enc(t) %>" class="text-xs text-stone-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent"><%= esc(t) %></a>
+                    <a href="./#/tag/<%- enc(t) %>" class="text-xs text-stone-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent"><%- esc(t) %></a>
                     <% }); %>
                   </div>
                   <% } %>
@@ -292,9 +367,9 @@ var year = new Date().getFullYear();
                 </button>
                 <div id="mtoc-panel" hidden class="toc-drawer open mt-2 p-4 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50 max-h-60 overflow-y-auto">
                   <% tocTree.forEach(function (h) { %>
-                  <a href="#<%= h.id %>" data-toc-jump="<%= h.id %>" data-toc-mirror="<%= h.id %>" class="toc-link block text-sm py-1 text-stone-400 dark:text-zinc-400"><%= esc(h.text) %></a>
+                  <a href="#<%= h.id %>" data-toc-jump="<%= h.id %>" data-toc-mirror="<%= h.id %>" class="toc-link block text-sm py-1 text-stone-400 dark:text-zinc-400"><%- esc(h.text) %></a>
                   <% h.children.forEach(function (c) { %>
-                  <a href="#<%= c.id %>" data-toc-jump="<%= c.id %>" data-toc-mirror="<%= c.id %>" class="toc-link block text-sm py-1 pl-4 text-stone-400 dark:text-zinc-400"><%= esc(c.text) %></a>
+                  <a href="#<%= c.id %>" data-toc-jump="<%= c.id %>" data-toc-mirror="<%= c.id %>" class="toc-link block text-sm py-1 pl-4 text-stone-400 dark:text-zinc-400"><%- esc(c.text) %></a>
                   <% }); %>
                   <% }); %>
                 </div>
@@ -306,17 +381,17 @@ var year = new Date().getFullYear();
               <% if (!isFixed) { %>
               <nav class="grid grid-cols-2 gap-4 mt-10 pt-6 border-t border-[#f5f5f4] dark:border-zinc-800">
                 <% if (prevPost) { %>
-                <a href="./<%= esc(prevPost.id) %>" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl">
+                <a href="./<%- esc(prevPost.id) %>" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl">
                   <div class="text-xs text-stone-400 dark:text-zinc-500 mb-2"><i class="fa-solid fa-arrow-left"></i> 上一篇</div>
-                  <div class="text-sm font-medium text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100 line-clamp-2"><%= esc(prevPost.title) %></div>
+                  <div class="text-sm font-medium text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100 line-clamp-2"><%- esc(prevPost.title) %></div>
                 </a>
                 <% } else { %>
                 <div class="p-4 rounded-xl border border-dashed border-[#f5f5f4] dark:border-zinc-800 flex items-center justify-center text-sm text-stone-400 dark:text-zinc-600">已是最新一篇</div>
                 <% } %>
                 <% if (nextPost) { %>
-                <a href="./<%= esc(nextPost.id) %>" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl text-right">
+                <a href="./<%- esc(nextPost.id) %>" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl text-right">
                   <div class="text-xs text-stone-400 dark:text-zinc-500 mb-2">下一篇 <i class="fa-solid fa-arrow-right"></i></div>
-                  <div class="text-sm font-medium text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100 line-clamp-2"><%= esc(nextPost.title) %></div>
+                  <div class="text-sm font-medium text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100 line-clamp-2"><%- esc(nextPost.title) %></div>
                 </a>
                 <% } else { %>
                 <div class="p-4 rounded-xl border border-dashed border-[#f5f5f4] dark:border-zinc-800 flex items-center justify-center text-sm text-stone-400 dark:text-zinc-600">已是最后一篇</div>
@@ -331,23 +406,23 @@ var year = new Date().getFullYear();
           <section data-view-panel="home">
             <div class="space-y-4">
               <% posts.forEach(function (p) { %>
-              <article data-post-id="<%= esc(p.id) %>" data-category="<%= esc(p.category) %>" data-tags="<%= esc((p.tags || []).join('|')) %>" class="group relative">
+              <article data-post-id="<%- esc(p.id) %>" data-category="<%- esc(p.category) %>" data-tags="<%- esc((p.tags || []).join('|')) %>" class="group relative">
                 <div class="absolute -inset-px bg-gradient-to-r from-transparent via-stone-200 dark:via-zinc-800/20 to-transparent rounded-xl opacity-0 group-hover:opacity-100 -z-10 transition-opacity"></div>
                 <div class="relative p-5 md:p-6 rounded-xl bg-white/90 dark:bg-zinc-900/70 border border-[#f5f5f4] dark:border-zinc-700/50 hover:border-amber-200/50 dark:hover:border-amber-500/30 shadow-sm hover:shadow-amber-200/20 dark:shadow-amber-950/20 dark:hover:shadow-amber-500/10 transition-all duration-300">
                   <% if (/^https?:\/\//i.test(p.cover)) { %>
-                  <img src="<%= esc(p.cover) %>" alt="" class="w-full h-40 object-cover rounded-lg mb-4" loading="lazy">
+                  <img src="<%- esc(p.cover) %>" alt="" class="w-full h-40 object-cover rounded-lg mb-4" loading="lazy">
                   <% } %>
                   <h2 class="text-lg md:text-xl font-semibold text-stone-800 dark:text-zinc-100 mb-3 relative z-10">
-                    <a href="./<%= esc(p.id) %>" class="hover:text-amber-600 dark:hover:text-accent"><%= esc(p.title) %></a>
+                    <a href="./<%- esc(p.id) %>" class="hover:text-amber-600 dark:hover:text-accent"><%- esc(p.title) %></a>
                   </h2>
                   <% if (p.summary) { %>
-                  <p class="text-sm text-stone-500 dark:text-zinc-400 mb-4 line-clamp-2"><%= esc(p.summary) %></p>
+                  <p class="text-sm text-stone-500 dark:text-zinc-400 mb-4 line-clamp-2"><%- esc(p.summary) %></p>
                   <% } %>
                   <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-stone-400 dark:text-zinc-500 relative z-10">
-                    <span><i class="fa-regular fa-calendar text-xs mr-1"></i><%= esc(p.date) %></span>
+                    <span><i class="fa-regular fa-calendar text-xs mr-1"></i><%- esc(p.date) %></span>
                     <% if (p.category) { %>
                     <span>
-                      <a href="./#/category/<%= enc(p.category) %>" class="px-2 py-0.5 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs hover:bg-amber-200 dark:hover:bg-accent/20"><%= esc(p.category) %></a>
+                      <a href="./#/category/<%- enc(p.category) %>" class="px-2 py-0.5 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs hover:bg-amber-200 dark:hover:bg-accent/20"><%- esc(p.category) %></a>
                     </span>
                     <% } %>
                     <% var cardTags = (p.tags || []).slice(0, 3); %>
@@ -355,7 +430,7 @@ var year = new Date().getFullYear();
                     <span class="flex items-center gap-1 text-[12px] text-stone-400 dark:text-zinc-600">
                       <i class="fa-solid fa-tag"></i>
                       <% cardTags.forEach(function (t, ti) { %>
-                      <a href="./#/tag/<%= enc(t) %>" class="hover:text-amber-600 dark:hover:text-accent"><%= esc(t) %></a>
+                      <a href="./#/tag/<%- enc(t) %>" class="hover:text-amber-600 dark:hover:text-accent"><%- esc(t) %></a>
                       <% if (ti < cardTags.length - 1) { %><span class="text-stone-300 dark:text-zinc-600">·</span><% } %>
                       <% }); %>
                     </span>
@@ -383,11 +458,11 @@ var year = new Date().getFullYear();
                     <h3 class="text-sm font-medium text-stone-400 dark:text-zinc-400 mb-3"><%= m.name %></h3>
                     <div class="space-y-2">
                       <% m.posts.forEach(function (p) { %>
-                      <a href="./<%= esc(p.id) %>" class="flex items-center gap-4 py-2 px-3 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800/60 group">
+                      <a href="./<%- esc(p.id) %>" class="flex items-center gap-4 py-2 px-3 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800/60 group">
                         <span class="text-xs font-mono text-stone-400 dark:text-zinc-500 w-8"><%= String(new Date(p.date).getDate()).padStart(2, '0') %></span>
-                        <span class="flex-1 text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100"><%= esc(p.title) %></span>
+                        <span class="flex-1 text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100"><%- esc(p.title) %></span>
                         <% if (p.category) { %>
-                        <span class="text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded hidden sm:inline"><%= esc(p.category) %></span>
+                        <span class="text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded hidden sm:inline"><%- esc(p.category) %></span>
                         <% } %>
                       </a>
                       <% }); %>
@@ -408,9 +483,9 @@ var year = new Date().getFullYear();
             </div>
             <div class="flex flex-wrap gap-3">
               <% tagList.forEach(function (t) { %>
-              <a href="./#/tag/<%= enc(t.name) %>" class="group inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900/60 border border-[#f5f5f4] dark:border-zinc-700 rounded-xl text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent hover:border-amber-300 dark:hover:border-amber-500/50 transition-colors">
+              <a href="./#/tag/<%- enc(t.name) %>" class="group inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900/60 border border-[#f5f5f4] dark:border-zinc-700 rounded-xl text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent hover:border-amber-300 dark:hover:border-amber-500/50 transition-colors">
                 <i class="fa-solid fa-tag text-xs text-stone-400 dark:text-zinc-500 group-hover:text-amber-600 dark:group-hover:text-accent"></i>
-                <span><%= esc(t.name) %></span>
+                <span><%- esc(t.name) %></span>
                 <span class="text-xs px-1.5 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-full text-stone-400 dark:text-zinc-400"><%= t.count %></span>
               </a>
               <% }); %>
@@ -462,19 +537,19 @@ var year = new Date().getFullYear();
         <aside class="hidden lg:block sticky top-[2.5rem] self-start w-[270px] shrink-0 space-y-4">
           <div class="p-5 rounded-xl bg-white dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/50">
             <div class="flex items-start gap-3 mb-4">
-              <img src="<%= esc(avatarUrl) %>" class="w-14 h-14 rounded-full border-2 border-stone-200 dark:border-zinc-700 shrink-0" alt="avatar">
+              <img src="<%- esc(avatarUrl) %>" class="w-14 h-14 rounded-full border-2 border-stone-200 dark:border-zinc-700 shrink-0" alt="avatar">
               <div class="min-w-0">
-                <h3 class="text-base font-bold text-stone-800 dark:text-zinc-100 truncate"><%= esc(blogger.name) %></h3>
-                <p class="text-xs text-amber-600 dark:text-accent mt-0.5 truncate"><%= esc(blogger.motto) %></p>
+                <h3 class="text-base font-bold text-stone-800 dark:text-zinc-100 truncate"><%- esc(blogger.name) %></h3>
+                <p class="text-xs text-amber-600 dark:text-accent mt-0.5 truncate"><%- esc(blogger.motto) %></p>
               </div>
             </div>
-            <p class="text-xs text-stone-500 dark:text-zinc-400 leading-relaxed">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<%= esc(blogger.bio) %></p>
+            <p class="text-xs text-stone-500 dark:text-zinc-400 leading-relaxed">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<%- esc(blogger.bio) %></p>
             <div class="flex items-center justify-center gap-4 pt-3 border-t border-stone-200 dark:border-zinc-800/50">
               <% if (blogger.github) { %>
-              <a href="<%= esc(blogger.github) %>" target="_blank" rel="noopener" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-brands fa-github text-base"></i></a>
+              <a href="<%- esc(blogger.github) %>" target="_blank" rel="noopener" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-brands fa-github text-base"></i></a>
               <% } %>
               <% if (blogger.email) { %>
-              <a href="mailto:<%= esc(blogger.email) %>" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-solid fa-envelope text-base"></i></a>
+              <a href="mailto:<%- esc(blogger.email) %>" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-solid fa-envelope text-base"></i></a>
               <% } %>
               <a href="/rss.xml" target="_blank" rel="noopener" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-solid fa-rss text-base"></i></a>
             </div>
@@ -496,7 +571,7 @@ var year = new Date().getFullYear();
               <% tocTree.forEach(function (h) { %>
               <div>
                 <div class="flex items-center gap-1">
-                  <a href="#<%= h.id %>" data-toc-link="<%= h.id %>" class="toc-link text-sm py-1 transition-colors flex-1 text-stone-400 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent"><%= esc(h.text) %></a>
+                  <a href="#<%= h.id %>" data-toc-link="<%= h.id %>" class="toc-link text-sm py-1 transition-colors flex-1 text-stone-400 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent"><%- esc(h.text) %></a>
                   <% if (h.children.length) { %>
                   <button type="button" data-toggle="toc-group-<%= h.id %>" aria-expanded="true" class="p-0.5 text-stone-400 dark:text-zinc-500 hover:text-amber-600 dark:hover:text-accent transition-colors">
                     <i class="fa-solid fa-chevron-right text-[8px] transition-transform i-chevron-90"></i>
@@ -506,7 +581,7 @@ var year = new Date().getFullYear();
                 <% if (h.children.length) { %>
                 <div id="toc-group-<%= h.id %>" class="pl-4 border-l border-stone-200 dark:border-zinc-700/50 ml-1">
                   <% h.children.forEach(function (c) { %>
-                  <a href="#<%= c.id %>" data-toc-link="<%= c.id %>" class="toc-link flex items-center gap-1 text-sm py-1 transition-colors text-stone-400 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent"><%= esc(c.text) %></a>
+                  <a href="#<%= c.id %>" data-toc-link="<%= c.id %>" class="toc-link flex items-center gap-1 text-sm py-1 transition-colors text-stone-400 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent"><%- esc(c.text) %></a>
                   <% }); %>
                 </div>
                 <% } %>
@@ -527,7 +602,7 @@ var year = new Date().getFullYear();
             <div id="tags-panel" class="border-t border-stone-100 dark:border-zinc-800/50 px-4 py-3">
               <div class="flex flex-wrap gap-1.5">
                 <% tagList.forEach(function (t) { %>
-                <a href="./#/tag/<%= enc(t.name) %>" data-tag="<%= esc(t.name) %>" class="text-xs px-2.5 py-1 rounded-full transition-colors bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent"><%= esc(t.name) %> <span class="text-stone-400 dark:text-zinc-400"><%= t.count %></span></a>
+                <a href="./#/tag/<%- enc(t.name) %>" data-tag="<%- esc(t.name) %>" class="text-xs px-2.5 py-1 rounded-full transition-colors bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent"><%- esc(t.name) %> <span class="text-stone-400 dark:text-zinc-400"><%= t.count %></span></a>
                 <% }); %>
               </div>
             </div>
@@ -541,9 +616,9 @@ var year = new Date().getFullYear();
     <div class="mt-auto">
       <footer class="border-t border-stone-200 dark:border-zinc-800 py-4">
         <div class="max-w-[100rem] mx-auto px-5 sm:px-8 xl:px-10 flex items-center justify-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
-          <div>© <%= year %> <%= esc(site.name) %>. All rights reserved.</div>
+          <div>© <%= year %> <%- esc(site.name) %>. All rights reserved.</div>
           <% if (site.icp) { %>
-          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" class="text-sky-600 dark:text-sky-400 hover:underline"><%= esc(site.icp) %></a>
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" class="text-sky-600 dark:text-sky-400 hover:underline"><%- esc(site.icp) %></a>
           <% } %>
         </div>
       </footer>
