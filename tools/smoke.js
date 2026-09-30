@@ -116,15 +116,52 @@ check('collect() 用 getChildNotes() 遍历（不能用 getVisibleChildNotes）'
   /rootNote\.getChildNotes\(\)\.forEach/.test(ejsSrc) && !/collect\([^)]*getVisibleChildNotes/.test(ejsSrc),
   'EJS 里的文章收集遍历方式被改回可见性过滤');
 
-/* 详情页内边距：外层主体容器一层 + 详情视图容器一层，合计两层（旧版就是两层，
-   去掉内层会明显变紧 —— 正文贴边，是真实被用户发现的回归）。 */
-const PAD_BOX = /class="[^"]*max-w-\[100rem\][^"]*px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14[^"]*"/g;
+/* 详情页内边距：
+   · 水平 px 仍是两层（外层 shell + 详情视图根）—— 去掉会明显变紧（正文贴边），
+     是此前被用户发现的真实回归，必须保留。
+   · 垂直**上**内边距只有一层（详情视图根用 pt-0）—— 两层会让正文比右侧 fixed 侧栏
+     低 40px，顶部错位（用户报告的"没对齐"）。
+   所以这里分别断言：水平两层、垂直顶层只有一层。 */
+/* ⚠️ 容器宽度不要硬编码：从 EJS 读出 max-w-[Nrem] 再拼正则。
+      （曾硬编码 100rem，容器收窄到 92.5rem 后这里全部误报；也曾只写整数 \d+，
+        匹配不到 92.5 → 依赖它的断言连环误报。） */
+const containerMaxMatch = ejsSrc.match(/max-w-\[(\d+(?:\.\d+)?)rem\]/);
+const CONTAINER_ESC = containerMaxMatch ? containerMaxMatch[1].replace('.', '\\.') : '\\d+(?:\\.\\d+)?';
+/* ⚠️ 两套转义别混用：
+   · **HTML 渲染结果**里 class 是原样的 `max-w-[92.5rem]`（方括号不转义）
+   · **CSS 文件**里选择器是转义的 `.max-w-\[92\.5rem\]`
+   早先混用了 CSS 的转义去匹配 HTML → 永远匹配不到（静默变 0 层）。
+   还有：`\b` 别用在 `px-5` 这种带连字符的类名上（`-` 是非单词字符，边界语义失灵）。 */
+/* ⚠️ 匹配要限定在**同一个 class 属性内部**：`class="[^"]*max-w-...` 里的 `[^"]*`
+   可以跨越多个标签（只要中间不出现引号），会把相邻元素也算进来（曾数出 3/4 层）。
+   grep 风格的「单标签内」写法：class="..." 里不允许出现 `<` 或 `>`。 */
+/* ⚠️ 必须带上 `py-10 pb-28 md:pb-14` 这个尾巴来锁定「主体容器」：
+   header / 页脚内层也用了同样的 `max-w-[..] px-5` 组合（收窄容器后共享同一宽度），
+   光靠 max-w + px-5 会一并数进来（曾数出 3/4 层）。 */
+const CONTAINER_CLASS = 'max-w-\\[' + CONTAINER_ESC + 'rem\\]';
+const CLS = 'class="[^"<>]*';
+const PAD_BOX = new RegExp(
+  CLS + CONTAINER_CLASS + '[^"<>]*px-5[^"<>]*py-10[^"<>]*pb-28[^"<>]*md:pb-14[^"<>]*"', 'g',
+);
+
 const homePad = (home.body.match(PAD_BOX) || []).length;
 check(`首页只有一层内边距容器（${homePad}）`, homePad === 1, `实际 ${homePad} 层`);
 if (post.status === 200) {
-  const postPad = (post.body.match(PAD_BOX) || []).length;
-  check(`详情页内边距容器两层（${postPad} = 外层 shell + 详情视图根）`, postPad === 2,
-    `实际 ${postPad} 层 —— 详情页内边距被清掉了？`);
+  /* 详情页有**两**层容器，但垂直上内边距只该有一层：
+       · 外层 shell：py-10 pb-28 md:pb-14   ← 提供唯一的上内边距
+       · 详情视图根：pt-0 pb-28 md:pb-14    ← 上内边距为 0
+     两层的**水平** px 都保留（去掉会正文贴边，是真实回归）。 */
+  const outerShell = (post.body.match(PAD_BOX) || []).length;
+  check(`详情页外层 shell 保留 py-10 上内边距（${outerShell} 层）`, outerShell === 1,
+    `实际 ${outerShell} 层 —— 详情页完全没有上内边距了？`);
+
+  const innerRoot = new RegExp(
+    CLS + CONTAINER_CLASS + '[^"<>]*px-5[^"<>]*pt-0[^"<>]*pb-28[^"<>]*md:pb-14[^"<>]*"', 'g',
+  );
+  const innerRootN = (post.body.match(innerRoot) || []).length;
+  check(`详情视图根用 pt-0 且保留水平 px（${innerRootN} 处）`, innerRootN === 1,
+    `实际 ${innerRootN} 处 —— 详情视图根应写 px-5 sm:px-8 xl:px-10 pt-0 pb-28 md:pb-14：`
+    + `上内边距为 0（否则正文比侧栏低 40px 错位），水平内边距必须保留（否则正文贴边）`);
 }
 
 /* ---- D. 服务端 TOC ---- */
@@ -507,9 +544,11 @@ const headerRem = headerSpacing ? Number(headerSpacing[1]) * 0.25 : null;
 check('能从 EJS 读出 header 高度（h-N 工具类）',
   headerRem !== null, '未匹配到 <header> 上的 h-* 类');
 
-const containerMaxW = themeEjsSrc.match(/class="[^"]*\bmax-w-\\?\[(\d+)rem\\?\]/);
+/* ⚠️ 必须支持小数：容器曾收窄到 92.5rem 让整块居中，
+   早先的正则只写 \d+ 会匹配不到 → 所有依赖 containerRem 的断言连环误报。 */
+const containerMaxW = themeEjsSrc.match(/class="[^"]*\bmax-w-\\?\[(\d+(?:\.\d+)?)rem\\?\]/);
 const containerRem = containerMaxW ? Number(containerMaxW[1]) : null;
-check('能从 EJS 读出内容容器 max-width（max-w-[Nrem]）',
+check('能从 EJS 读出内容容器 max-width（max-w-[Nrem]，支持小数如 92.5rem）',
   containerRem !== null, '未匹配到容器上的 max-w-[*rem]');
 
 const asideWidth = themeEjsSrc.match(/<aside[^>]*class="[^"]*\bw-\\?\[(\d+)px\\?\]/);
@@ -569,7 +608,7 @@ check('侧边栏规则含 z-index（低于 header、高于正文）',
       一大堆（目录链接、按钮、分类胶囊…），裸正则会匹配到第一个（py-1）而静默取错值。
       这里用容器独有的 class 组合锚定：flex-1 + flex-col + max-w-[Nrem] + py-N。 */
 const containerEl = themeEjsSrc.match(
-  /class="[^"]*\bflex-1\b[^"]*\bflex-col\b[^"]*\bmax-w-\\?\[\d+rem\\?\][^"]*\bpy-(\d+)\b/,
+  /class="[^"]*\bflex-1\b[^"]*\bflex-col\b[^"]*\bmax-w-\\?\[\d+(?:\.\d+)?rem\\?\][^"]*\bpy-(\d+)\b/,
 );
 const containerPyRem = containerEl ? Number(containerEl[1]) * 0.25 : null;
 check('能从 EJS 读出主体布局容器的竖向内边距（py-N，锚定 flex-col + max-w-[Nrem]）',
@@ -601,8 +640,8 @@ check('max-height 的减数与 top 一致（限高与定位同坐标系）',
   `max-height 减数=${mhRem ? mhRem[1] : '(未取到)'}rem，top=${asideTop}rem —— 两者应一致`);
 
 /* L5 · left 公式里的常量必须与 EJS 一致（防「改了容器宽度忘了改公式」）
-   ⚠️ 只取 `left:` 那条声明来校验 —— 规则体里还有注释提到 100rem，
-      如果对整个 ruleBody 做正则，注释会误伤（曾因此漏掉一次真实回归）。 */
+   ⚠️ 只取 `left:` 那条声明来校验 —— 规则体里还有注释，如果对整个 ruleBody
+      做正则，注释里出现的字面量会误伤（曾因此漏掉一次真实回归）。 */
 const leftDecl = ruleBody.match(/\bleft:\s*([^;]+);/);
 const leftBody = leftDecl ? leftDecl[1] : '';
 check('能从 CSS 里提取 left 声明（只取声明本身，避开注释）',
@@ -643,6 +682,46 @@ check('渲染结果里 aside 不再带 self-start / sticky',
   !/<aside[^>]*class="[^"]*\bself-start\b/.test(home.body) &&
   !/<aside[^>]*class="[^"]*\bsticky\b/.test(home.body),
   '服务端渲染出的 aside 仍带 self-start 或 sticky');
+
+/* L8 · 两侧卡片内边距必须一致（用户发现：右侧留白比左侧小，观感不齐）
+   —— 左侧文章卡是 `p-5 md:p-6`，右侧卡片若只写 `p-5`，
+      ≥768px 时左侧 24px、右侧 20px，两侧内容边缘对不齐。 */
+const leftCardPad = themeEjsSrc.match(
+  /class="relative\s+p-(\d+)\s+md:p-(\d+)[^"]*rounded-xl[^"]*bg-white/,
+);
+const asideCardPad = themeEjsSrc.match(
+  /<aside[\s\S]{0,400}?class="p-(\d+)(?:\s+md:p-(\d+))?\s+rounded-xl\s+bg-white/,
+);
+check('能从 EJS 读出左侧文章卡的内边距（p-N md:p-M）',
+  leftCardPad !== null, '未匹配到左侧文章卡的 p-N md:p-M');
+check('能从 EJS 读出侧栏卡片的内边距',
+  asideCardPad !== null, '未匹配到 <aside> 内首张卡片的 p-*');
+if (leftCardPad && asideCardPad) {
+  const lBase = Number(leftCardPad[1]), lMd = Number(leftCardPad[2]);
+  const aBase = Number(asideCardPad[1]);
+  const aMd = asideCardPad[2] ? Number(asideCardPad[2]) : aBase;
+  check(`两侧卡片内边距一致（左 p-${lBase} md:p-${lMd} / 右 p-${aBase} md:p-${aMd}）`,
+    lBase === aBase && lMd === aMd,
+    `两侧卡片内边距不一致 → ≥768px 时左侧 ${lMd * 4}px、右侧 ${aMd * 4}px，`
+    + `内容边缘对不齐（用户报告的"右侧留白看起来不一致"）；`
+    + `如需不同，请同步改 .smoke.js 的这条断言并说明理由`);
+}
+
+/* L9 · EJS 用的容器任意值类必须在 Tailwind 产物里有对应声明
+   —— Tailwind 只扫描构建时的类名，EJS 里新写的 max-w-[92.5rem] 不会自动生成，
+      漏了会静默退回无 max-width（页面变超宽），非常隐蔽。 */
+if (containerRem !== null) {
+  /* ⚠️ 别用 RegExp 拼转义 —— CSS 选择器里的 `[` `.` `]` 本身已被反斜杠转义
+     （产物形态：.max-w-\[92\.5rem\]），再叠一层 JS 转义极易写错。
+     直接用「字面量选择器字符串」在 CSS 源码里找（indexOf），稳且可读。 */
+  const selLiteral = '.max-w-\\[' + String(containerRem).replace('.', '\\.') + 'rem\\]';
+  const selIdx = themeCssSrc.indexOf(selLiteral);
+  const after = selIdx >= 0 ? themeCssSrc.slice(selIdx, selIdx + 120) : '';
+  check(`Tailwind 产物里有 .max-w-[${containerRem}rem] 的声明（否则该任意值类不生效）`,
+    selIdx >= 0 && /max-width\s*:/.test(after),
+    `CSS 里没有 ${selLiteral} 规则 —— Tailwind 不会为 EJS 新写的任意值类生成样式，`
+    + `必须手写进 TimelyBlogTheme.css 的 banner 段（否则页面静默变超宽）`);
+}
 
 /* ------------------------------------------------------------------ */
 
