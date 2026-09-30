@@ -343,7 +343,11 @@ var year = new Date().getFullYear();
 <% if (isPostPage) { %>
 
           <!-- ========== 文章详情 ========== -->
-          <div class="dark:bg-zinc-900/50 rounded-xl">
+          <% /* 内边距是两层：外层主体容器已有一层，这里再叠一层 —— 这是旧版的原样
+                （旧版 tpl-post-detail-view 根节点自带整套 px/py，Vue 把它挂进带内边距的
+                <main id="main-scroll"> 里，视觉上就是两层）。去掉会明显变紧（正文贴边），
+                刻意保留，别当重复样式清理。 */ %>
+          <div class="max-w-[100rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14 dark:bg-zinc-900/50 rounded-xl">
             <article>
               <% if (!isFixed) { %>
               <header class="mb-8 pb-6 border-b border-stone-200 dark:border-zinc-800">
