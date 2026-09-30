@@ -17,6 +17,28 @@ const t = (key, opts) => {
   return String(key).replace(/{{(\w+)}}/g, (m, k) => (k in opts ? opts[k] : m));
 };
 
+/**
+ * 采集「整棵分享子树里实际会用到」的图标类名（如 `bxs-shower`）。
+ *
+ * 为什么要按需：Trilium 线上会把内置包的全部 1634 条 glyph 声明内联进每一页（≈45KB/页）。
+ * 本地没必要照抄 —— 遍历 store 里所有笔记的 `#iconClass` + 类型回退（getIcon()），
+ * 只把命中 glyph 表的那几个类名交给 buildIconPackCss()。
+ *
+ * 覆盖范围故意比「本页可见」宽：整棵子树都算，这样一个 glyph 集合对任意页面都够用，
+ * 不会因为某页缺声明而出现「首页图标正常、详情页空白」这种随页面漂移的问题。
+ */
+function collectUsedGlyphs(store) {
+  const used = new Set();
+  for (const node of store.nodes.values()) {
+    const note = node.note;
+    if (!note || typeof note.getIcon !== 'function') continue;
+    for (const cls of String(note.getIcon() || '').split(/\s+/)) {
+      if (cls) used.add(cls);
+    }
+  }
+  return used;
+}
+
 function buildLocals({ store, note }) {
   const root = store.root;
   return {
@@ -36,10 +58,11 @@ function buildLocals({ store, note }) {
     showLoginInShareTheme: false,
     t,
     isDev: true,
-    // 图标包：Trilium 已把 iconPackCss 算好塞进模板上下文。
+    // 图标包：Trilium 已把 iconPackCss 算好塞进模板上下文（v0.105.0 RenderArgs）。
     // 线上内置包为 Boxicons v2（prefix bx），字体走 /share/assets/fonts/boxicons.woff2。
-    // 本地渲染时由 localizeAssets 把该地址重写成 /share/theme/boxicons.woff2（主题仓库内）。
-    iconPackCss: ICON_PACK_CSS,
+    // 本地由 buildIconPackCss() 复刻等价的 @font-face + .bx + 逐图标 glyph 声明
+    // （按需输出：只含整棵子树实际用到的类名，线上是全量 1634 条）。
+    iconPackCss: buildIconPackCss(collectUsedGlyphs(store)),
     iconPackSupportedPrefixes: ['bx'],
     // —— 本项目扩展（前缀 __ 避免与 Trilium locals 混淆）——
     __dev: {
@@ -51,12 +74,39 @@ function buildLocals({ store, note }) {
 }
 
 /**
- * 内置图标包（Boxicons v2）的 @font-face + .bx 基础规则。
- * 线上这份 CSS 由 Trilium 服务端生成（icon_packs.generateCss），
- * 本地只需基础规则即可让 <i class="bx bxs-shower"> 正常显示 ——
- * 单个图标 glyph 由 boxicons.min.css 提供（见 mockups 与主题 CSS 引入的字体样式）。
+ * 内置图标包（Boxicons v2）的 iconPackCss。
+ *
+ * ⚠️ 这里必须复刻 Trilium 服务端的 `icon_packs.generateCss()` 结构：
+ *      @font-face  +  `.bx` 基础规则  +  **逐图标的 glyph 声明**
+ *      `.bx.bxs-shower::before { content: "\ef45"; }`
+ *    只写前两段是不够的 —— 少了 glyph 声明，<i class="bx bxs-shower"> 渲染出来是**空白**，
+ *    因为字体里并没有「.bxs-shower 这个类 ⇒ 对应码点」的映射（踩过：页面图标全部不显示）。
+ *
+ * 数据来源：`boxicons-glyphs.json`（1634 个图标，从 boxicons 官方 CSS 生成，
+ * 生成脚本 tools/gen-boxicons-glyphs.py）。
+ *
+ * 体积优化：线上 Trilium 会把**全部** 1634 条声明内联进每一页（≈45KB/页）。
+ * 本地不照抄 —— 传 usedGlyphs（整棵子树实际用到的类名集合，见 collectUsedGlyphs）时
+ * 只输出命中 glyph 表的那几条（真实库约 5–10 条，≈1KB）。
+ * 不传则输出全量（保持与线上一致的兜底行为，也方便对照调试）。
  */
-const ICON_PACK_CSS = `@font-face {
+let _glyphTableCache = null;
+function loadGlyphTable() {
+  if (_glyphTableCache !== null) return _glyphTableCache;
+  const tablePath = themePath('boxicons-glyphs.json');
+  if (!fs.existsSync(tablePath)) {
+    console.warn(
+      `[render] 缺少图标字形表 ${tablePath} → 图标会显示为空白。\n` +
+      `         生成方式：node tools/gen-boxicons-glyphs.py（或见 README「图标包」一节）。`,
+    );
+    _glyphTableCache = {};
+    return _glyphTableCache;
+  }
+  _glyphTableCache = JSON.parse(fs.readFileSync(tablePath, 'utf8'));
+  return _glyphTableCache;
+}
+
+const ICON_FONT_FACE = `@font-face {
   font-family: 'boxicons';
   font-weight: normal;
   font-style: normal;
@@ -74,6 +124,17 @@ const ICON_PACK_CSS = `@font-face {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }`;
+
+function buildIconPackCss(usedGlyphs) {
+  const table = loadGlyphTable();
+  const names = usedGlyphs && usedGlyphs.size
+    ? [...usedGlyphs].filter((n) => n in table)
+    : Object.keys(table);
+  const decls = names
+    .map((name) => `.bx.${name}::before { content: "${table[name]}"; }`)
+    .join('\n');
+  return decls ? `${ICON_FONT_FACE}\n${decls}` : ICON_FONT_FACE;
+}
 
 /**
  * canvas（Excalidraw）笔记在分享页里不是下发场景 JSON，而是渲染成一张图片。
