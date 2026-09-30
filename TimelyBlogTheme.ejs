@@ -55,7 +55,13 @@ var avatarUrl = blogger.avatar || ('https://api.dicebear.com/7.x/avataaars/svg?s
 var fixedPages = ['about'];
 function isFixedPage(n) { return fixedPages.indexOf(n.getLabelValue('shareAlias')) !== -1; }
 
-/* ---- 文章收集：可见子笔记递归；用 Set 去重（原实现是 O(n²) 的 Array.some）---- */
+/* ---- 文章收集：递归遍历 + Set 去重（原实现是 O(n²) 的 Array.some）----
+   ⚠️ 遍历必须用 getChildNotes()，不能用 getVisibleChildNotes()：
+     `#shareHiddenFromTree` 的语义是「不出现在分享树的左侧导航」，**不等于「不是文章」**。
+     文章的唯一判据是 `#publish=true`。用 getVisibleChildNotes() 会把
+     「已共享 + 已发布 + 隐藏于树」的文章从首页列表里整批吃掉（曾踩过）。
+     在真实 Trilium 里 shaca 只装「已共享」的笔记，所以 getChildNotes() 就等于分享子树；
+     无 #publish 的笔记（模板、CSS/JS 副本等）由下面的判据自然过滤掉。---- */
 var posts = [];
 var seenIds = Object.create(null);
 function collect(node, depth) {
@@ -72,10 +78,10 @@ function collect(node, depth) {
       cover: node.getLabelValue('headerImage') || ''
     });
   }
-  var children = node.getVisibleChildNotes();
+  var children = node.getChildNotes();
   for (var i = 0; i < children.length; i++) collect(children[i], depth + 1);
 }
-rootNote.getVisibleChildNotes().forEach(function (child) { collect(child, 1); });
+rootNote.getChildNotes().forEach(function (child) { collect(child, 1); });
 posts.sort(function (a, b) { return b.date.localeCompare(a.date); });
 
 /* ---- 标签 / 分类聚合：算一次，导航 / 侧边栏 / 标签页共用 ---- */

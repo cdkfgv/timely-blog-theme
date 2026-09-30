@@ -114,7 +114,8 @@
 
 - [x] **4.1 派生数据只算一次** — 聚合改为模板里算一次（`tagCount` / `catCount` / `archive`），导航、侧边栏、标签页、归档页共用
 - [x] **4.2 全局状态统一** — `G` 全局对象（ref/reactive 混用）整体删除；状态落在 DOM（`hidden` / `aria-expanded` / `aria-current` / `body[data-view]`）
-- [x] **4.3 归档去重 O(n²) → Set**；`collect()` 统一用 `getVisibleChildNotes`（原实现子节点用 `getChildNotes`，会带出隐藏笔记）
+- [x] **4.3 归档去重 O(n²) → Set**；~~`collect()` 统一用 `getVisibleChildNotes`（原实现子节点用 `getChildNotes`，会带出隐藏笔记）~~
+  - 🔴 **该条已被阶段 5 推翻并回退**：改回 `getChildNotes()`，见下方 5.1
 - [x] **4.4 删首页骨架屏假延迟** — SSR 后首屏即内容，`setTimeout(300)` 与骨架屏标记一并删除
 - [x] **4.5 observer / listener 生命周期** — 不再有「路由切换销毁重建组件」的场景（页面级渲染），IntersectionObserver 只在一页内创建一次；scroll 监听已合并为单个 rAF 节流
 - [x] **4.6 补 OG / Twitter meta** — 按 Trilium 官方属性实现，模板侧自己算（默认 `page.ejs` 的特征不继承）：
@@ -145,6 +146,59 @@
 
 ---
 
+## 阶段 5 · 真实数据联调修复（2026-09-30 下午）
+
+> 背景：`share-tool` 第一次连**真实库**（`note.yihwang.top` / 根 `p3wjHYobxcWH`）跑，暴露出 3 个只有真实数据才会踩到的问题。
+> 之前几轮的「实测数据」其实跑的是 mock（当时 4321 实例是 `ETAPI_MOCK=1` 起的），所以没暴露。
+
+- [x] **5.1 🔴 首页列表空了（P0，阶段 4.3 引入的回归）**
+  - 现象：真实库首页 `共 0 篇文章`，一篇都列不出来
+  - 根因：`collect()` 递归用了 `getVisibleChildNotes()`，而 `#shareHiddenFromTree` 的语义只是
+    **「不出现在分享树的左侧导航」**，不等于「不是文章」。你博客里 5 篇文章都带这个标签 → 全被过滤
+  - 佐证：旧版（线上 Vue 版）递归用的就是 `getChildNotes()`，只有根节点用 `getVisibleChildNotes()`；线上 `/share/rWETtjGJtS3W` 返回 200 说明这些笔记确实已共享
+  - 修法：递归与根都改回 `getChildNotes()`。文章唯一判据是 `#publish=true`；真实 Trilium 的 shaca 只装已共享笔记，
+    所以 `getChildNotes()` 就等于分享子树，模板/CSS 副本等没有 `#publish` 的笔记自然被过滤
+  - 回归：smoke 加「隐藏于树的已发布文章仍在列表里」+「源码里必须用 `rootNote.getChildNotes()`」
+    （mock 里把 `post0000003` 标上 `#shareHiddenFromTree`）
+- [x] **5.2 ETAPI 正文被自动 `JSON.parse`（P1，share-tool）**
+  - 现象：canvas 笔记的正文渲染成字符串 `[object Object]`
+  - 根因：`etapi.js` 的 `request()` 对所有响应无条件 `JSON.parse`。canvas（Excalidraw）笔记的正文本身就是合法 JSON
+    （`{"type":"excalidraw",...}`）→ 被解析成对象 → `store.content` 里 `String(obj)` 得 `[object Object]`
+  - 修法：`request()` 加 `raw` 选项，`getNoteContent` 走 `{ raw: true }` 原样返回字符串
+    （任何「内容本身是合法 JSON」的文本笔记同样中招，不只是 canvas）
+  - 回归：新增 `npm run unit`（`tools/unit-test.js`），用打桩 fetch 断言正文返回字符串、元数据接口仍解析对象
+- [x] **5.3 canvas（Excalidraw）笔记支持（share-tool）**
+  - 实测线上 Trilium 对 canvas 笔记的输出（不是下发场景 JSON，而是渲染成图片）：
+    `<img src="api/images/<noteId>/<encodeURIComponent(title)>?<utcDateModified>">`
+  - share-tool 对齐该标记；`/api/images/:id/*` 路由已存在，本地返回一张占位 SVG
+    （本地不模拟 Excalidraw 绘制，属已知差异）
+  - 现在真实库 `/share/rWETtjGJtS3W` 的输出与线上逐字节一致
+- [x] **5.4 顺手修 smoke 的两处假报**
+  - `F` 段「子页面」写死 `post0000001`：真实库没这篇 → 整段无意义失败；改为用 `POST_ID`，取不到 200 时明确跳过
+  - `G` 段「渲染结果里不再出现 fiexd」：真实库文章《基于 Trilium Note…》正文里本来就在讲 `fiexdPages` 这个笔误
+    → 误报；改为 mock 专用，源码级断言保持无条件
+  - 新增 `I` 段：canvas 笔记专项（5 项）
+
+**真实库实测（`POST_ID=HvzRWi2r9bUh`，有 `<h2>` 的那篇）**
+
+| 检查 | 结果 |
+|---|---|
+| 首页文章列表 | **5 篇**（原 0 篇）：`网络拓扑图` / `常用软件推荐` / `公网安全访问内网 NAS` / `应用分享：TriliumNotes` / `基于 Trilium Note…` |
+| 标签 / 归档聚合 | 正常（Docker、NAS、Network、Self-Hosted、Trilium Notes、公网访问、内网穿透） |
+| canvas 文章 | `<img src="/share/api/images/rWETtjGJtS3W/%E7%BD%91%E7%BB%9C%E6%8B%93%E6%89%91%E5%9B%BE?2026-09-29 08:30:32.421Z">` —— 与线上一致 |
+| `shareAlias` | 根笔记的 `#siteName` 是「妙蛙妙蛙」，`关于` 走 `shareAlias=about` |
+
+**测试矩阵（全绿）**
+
+| 套件 | mock·local | mock·as-is | 真实库 |
+|---|---|---|---|
+| `npm run smoke` | **65** | **64** | **46**（需 `POST_ID=<真实文章 noteId>`） |
+| `npm run dom` | **46** | 46 | — |
+| `npm run unit` | **5** | — | — |
+| `npm run script-test` | **24** | — | — |
+
+---
+
 ## 已确认「不是必须」/ 保持不改
 
 | 项 | 结论 |
@@ -163,6 +217,8 @@
 
 ## share-tool 已知差异（非主题问题，按需处理）
 
-- ETAPI 读不到「共享开关」→ 本地改用排除 `#shareHiddenFromTree` 判定可见子笔记（树里混有未共享笔记时加该标签即可对齐线上）
+- ETAPI 读不到「共享开关」→ 本地拿不到真正的分享子树。**注意：主题的文章收集已不用 `#shareHiddenFromTree` 判定可见性**（见 5.1），
+  所以本地会遍历 ETAPI 能读到的整棵子树；若某篇「未共享但带 `#publish=true`」的笔记出现在本地列表里，属已知差异（线上不会）
+- canvas（Excalidraw）笔记：标记与线上一致（`<img src="api/images/...">`），但本地返回占位 SVG，不模拟实际绘制
 - 未模拟：受保护笔记拦截、CKEditor 净化、i18n 文案、KaTeX
 - `npm run push` 无 dry-run 预览（可选加）
