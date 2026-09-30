@@ -186,12 +186,12 @@ for (const [file, typeHint] of [[config.cssFile, /^text\/css/], [config.jsFile, 
 }
 
 // ---- F. 资源加载策略 ----
-console.log('\nF. 资源加载策略（开发期引用 Trilium 托管资源，发布期切 CDN）');
+console.log(`\nF. 资源加载策略（ASSET_MODE=${config.assetMode}）`);
 const ejsSrc = fs.readFileSync(path.join(config.themeDir, config.ejsFile), 'utf8');
 check('EJS 开发形态：引用 ~shareCss / ~shareJs',
   /getRelations\("shareCss"\)/.test(ejsSrc) && /getRelations\("shareJs"\)/.test(ejsSrc),
   'EJS 里未找到 shareCss / shareJs 循环');
-check('EJS 保留 CDN 发布形态（已注释）',
+check('EJS 保留 CDN 上线形态（已注释）',
   /<!--[\s\S]{0,400}?timely-theme\.css[\s\S]{0,400}?-->/.test(ejsSrc) &&
   /<!--[\s\S]{0,400}?timely-theme\.js[\s\S]{0,400}?-->/.test(ejsSrc),
   'EJS 里未找到被注释的 CDN 引用');
@@ -199,22 +199,40 @@ check('无自动回退逻辑（无 onerror / 动态注入）',
   !home.body.includes('onerror="this.onerror=null') && !/onerror="\(function\(\)/.test(home.body),
   '检测到回退属性');
 
-const homeAssets = home.body.match(/<link[^>]+href="api\/notes\/[^"]+\/download"[^>]*>|<script[^>]+src="api\/notes\/[^"]+\/download"[^>]*>/g) || [];
-check('首页主题资源已本地化（无 api/notes 引用）', homeAssets.length === 0, `仍有 ${homeAssets.length} 处：${homeAssets[0] || ''}`);
-check(`首页注入本地 CSS（${PREFIX}/theme/${config.cssFile}）`,
-  new RegExp(`<link[^>]+href="${PREFIX}/theme/${config.cssFile}"`).test(home.body));
-check(`首页注入本地 JS（${PREFIX}/theme/${config.jsFile}，保持 module）`,
-  new RegExp(`<script type="module" src="${PREFIX}/theme/${config.jsFile}"></script>`).test(home.body),
-  '未找到 type="module" 的主题脚本');
-check('注释里的 CDN 发布形态保持原样', /<!--[\s\S]*?cdn\.jsdmirror\.com[\s\S]*?-->/.test(home.body), '注释内容被误改写');
+const HOSTED_LINK = /<link[^>]+href="api\/notes\/[^"]+\/download"[^>]*>/g;
+const HOSTED_SCRIPT = /<script[^>]+src="api\/notes\/[^"]+\/download"[^>]*>/g;
+const LOCAL_LINK = new RegExp(`<link[^>]+href="${PREFIX}/theme/${config.cssFile}"`);
+const LOCAL_SCRIPT = new RegExp(`<script type="module" src="${PREFIX}/theme/${config.jsFile}"></script>`);
 
-// 子页面同样要有样式 —— 验证 ~shareCss / ~shareJs 关系的「可继承」生效
 const sub = await get(`${BASE}${PREFIX}/post0000001`);
-const subAssets = sub.body.match(/<link[^>]+href="api\/notes\/[^"]+\/download"[^>]*>|<script[^>]+src="api\/notes\/[^"]+\/download"[^>]*>/g) || [];
-check('子页面主题资源已本地化', subAssets.length === 0, `仍有 ${subAssets.length} 处`);
-check('子页面继承到主题资源（关系需勾「可继承」）',
-  new RegExp(`<link[^>]+href="${PREFIX}/theme/${config.cssFile}"`).test(sub.body),
-  '子页面没有主题 CSS —— 关系没继承');
+
+if (config.assetMode === 'as-is') {
+  // 阶段② 预览 / ③ 上线：保持 EJS 原样，验证 Trilium 托管（或 CDN）是否正常
+  const hosted = home.body.match(HOSTED_LINK) || [];
+  const hostedSub = sub.body.match(HOSTED_LINK) || [];
+  check('首页保留 Trilium 资源引用（未本地化）', hosted.length > 0, '首页没有 api/notes 引用');
+  check('子页面保留 Trilium 资源引用', hostedSub.length > 0, '子页面没有 api/notes 引用 → 关系没继承');
+  check('未注入本地主题资源', !LOCAL_LINK.test(home.body), '仍被重写成 /share/theme/*');
+  check('注释里的 CDN 保持原样', /<!--[\s\S]*?cdn\.jsdmirror\.com[\s\S]*?-->/.test(home.body));
+
+  // 引用确实可访问（走 /share/api/notes/<id>/download 代理）
+  const first = home.body.match(/api\/notes\/([\w-]+)\/download/);
+  if (first) {
+    const res = await fetch(`${BASE}${PREFIX}/api/notes/${first[1]}/download`);
+    const ct = res.headers.get('content-type') || '';
+    check(`主题资源可访问（${first[1]} → ${res.status} ${ct}）`, res.status === 200 && /css|javascript/i.test(ct));
+  }
+} else {
+  const homeAssets = (home.body.match(HOSTED_LINK) || []).concat(home.body.match(HOSTED_SCRIPT) || []);
+  check('首页主题资源已本地化（无 api/notes 引用）', homeAssets.length === 0, `仍有 ${homeAssets.length} 处`);
+  check(`首页注入本地 CSS（${PREFIX}/theme/${config.cssFile}）`, LOCAL_LINK.test(home.body));
+  check(`首页注入本地 JS（${PREFIX}/theme/${config.jsFile}，保持 module）`, LOCAL_SCRIPT.test(home.body), '未找到 type="module" 的主题脚本');
+  check('注释里的 CDN 保持原样', /<!--[\s\S]*?cdn\.jsdmirror\.com[\s\S]*?-->/.test(home.body), '注释内容被误改写');
+
+  const subAssets = (sub.body.match(HOSTED_LINK) || []).concat(sub.body.match(HOSTED_SCRIPT) || []);
+  check('子页面主题资源已本地化', subAssets.length === 0, `仍有 ${subAssets.length} 处`);
+  check('子页面继承到主题资源（关系需勾「可继承」）', LOCAL_LINK.test(sub.body), '子页面没有主题 CSS —— 关系没继承');
+}
 
 /* ------------------------------------------------------------------ */
 

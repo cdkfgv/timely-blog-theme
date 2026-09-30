@@ -72,14 +72,17 @@ export async function renderSharePage({ store, note, url = '/' }) {
 }
 
 /**
- * 把 EJS 里的主题资源引用换成本地文件，改 CSS/JS 刷新即见。
- * 两种形态都支持：
- *   1. CDN 地址（发布形态，代码里始终保留）
- *   2. `api/notes/<noteId>/download`（开发形态，Trilium 托管 Code 笔记）
+ * 把 EJS 里的主题资源引用换成本地文件（`ASSET_MODE=local`，主题流程的阶段①）。
+ * 处理的两种引用形态：
+ *   1. `note.getRelations("shareCss"/"shareJs")` → `api/notes/<noteId>/download`
  *      —— 按 noteId 查 config.hostedAssets；未命中则按被引用笔记的 MIME 判断
- * HTML 注释里的内容（如「发布形态」示例）保持原样，方便对照。
+ *   2. CDN 地址（发布形态，EJS 里以注释保留）—— 按文件名映射
+ * HTML 注释里的内容保持原样，方便对照发布形态。
+ * `ASSET_MODE=as-is` 时（阶段② 预览 / ③ 上线）整段跳过，页面保持 EJS 原样。
  */
 export function localizeAssets(html, store) {
+  if (config.assetMode === 'as-is') return html;
+
   const rewrite = (chunk) => {
     let out = chunk;
 

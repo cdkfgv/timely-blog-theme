@@ -70,14 +70,26 @@ npm start                   # 或 npm run dev（server.js 改动自动重启）
 
 `content` 里的内部链接按 Trilium 规则改写：`#root/<noteId>` → `./<shareId>`、`#...?attachmentId=x` → `api/attachments/x/download`、找不到的目标去掉 `href`，`api/` 资源路径归一为 `/share/api/`。
 
-**主题资源本地化**（两种形态都指向本地文件，改完 CSS/JS 刷新即见）：
+---
 
-| EJS 里的形态 | 场景 | 本地化方式 |
+## 主题资源 · 三阶段流程
+
+| 阶段 | EJS 里生效的写法 | share-tool 怎么配合 |
 |---|---|---|
-| `note.getRelations("shareCss"/"shareJs")` → `api/notes/<id>/download` | **开发调试期**（当前） | 按 noteId 查 `config.hostedAssets`（取自 `PUSH_NOTE_CSS/JS`，mock 用 `themeCss0001/themeJs0001`）；未命中按被引用笔记 MIME 判断 |
-| `cdn.jsdmirror.com/gh/.../Timely-Theme/<file>` | 发布形态（EJS 里以注释保留） | `config.assetRewrite` 按文件名映射 |
+| ① **开发**（当前） | `note.getRelations("shareCss"/"shareJs")` → `api/notes/<id>/download`；CDN 注释保留 | `ASSET_MODE=local`（默认）：把该引用重写成 `/share/theme/<本地文件>`，改 CSS/JS 存盘即见 |
+| ② **预览** | **不动**（CSS/JS 已上传进 Trilium） | `ASSET_MODE=as-is`：不重写，页面保持原样 → 真正验证 Trilium 托管的文件渲染是否正确 |
+| ③ **上线** | 注释 `shareCss`/`shareJs` 两段循环，启用 CDN `<link>` / `<script>` | 同上 `ASSET_MODE=as-is`；若想本地看效果再切回 `local`（会把 CDN 地址指向本地文件） |
 
-HTML 注释内的内容不做改写，方便在页面源码里对照发布形态。
+```bash
+# 阶段② / ③ 预览真实形态
+ASSET_MODE=as-is npm start
+```
+
+> `~shareCss` / `~shareJs` 方式访问需要登录，所以只用于开发/预览；外网一律走 CDN（阶段③）。
+
+**本地化细节**：`config.assetRewrite`（CDN 地址按文件名映射）+ `config.hostedAssets`（noteId → 本地文件名，取自 `PUSH_NOTE_CSS/JS`，mock 用 `themeCss0001/themeJs0001`；未命中按被引用笔记的 MIME 兜底）。HTML 注释内不改写，便于在页面源码里对照。
+
+⚠️ Trilium 里加 `~shareCss`/`~shareJs` 关系时**必须勾选「可继承」**，否则只有分享根笔记那页能取到，所有子页面无样式。
 
 ---
 

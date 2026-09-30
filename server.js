@@ -240,6 +240,7 @@ async function main() {
     console.log(`  根笔记   : ${rootNoteId}`);
     console.log(`  主题目录 : ${config.themeDir}`);
     console.log(`  模板     : ${config.ejsFile}`);
+    console.log(`  主题资源 : ${config.assetMode === 'as-is' ? 'as-is（保持 EJS 原样 · 阶段②预览/③上线）' : 'local（重写为 /share/theme/* · 阶段①开发）'}`);
     console.log(`  预取深度 : ${config.prefetchDepth} · 缓存 ${config.cacheTtl}ms`);
     console.log(`  首页     : ${base}`);
     console.log(`  调试状态 : ${base}__dev/state`);
