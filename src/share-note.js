@@ -34,14 +34,6 @@ export class ShareNote {
     return this._node.raw.dateCreated ?? '';
   }
 
-  get utcDateCreated() {
-    return this._node.raw.utcDateCreated ?? '';
-  }
-
-  get dateModified() {
-    return this._node.raw.dateModified ?? '';
-  }
-
   get utcDateModified() {
     return this._node.raw.utcDateModified ?? '';
   }
@@ -50,8 +42,9 @@ export class ShareNote {
     return this._node.raw.parentNoteIds ?? [];
   }
 
-  /** shareAlias 优先，否则 noteId —— 对齐 Trilium 的 shareId 规则 */
+  /** 对齐 Trilium SNote.shareId：分享根笔记返回 ''，否则 shareAlias || noteId */
   get shareId() {
+    if (this.hasLabel('shareRoot')) return '';
     return this.getLabelValue('shareAlias') || this.noteId;
   }
 

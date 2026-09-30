@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import ejs from 'ejs';
 import { config, themePath } from '../config.js';
 import { rewriteContent, isEmptyContent } from './rewrite.js';
-import { utils } from './utils.js';
 
 /** 每次渲染都读盘，保证改完 EJS 刷新即见（不做模块级缓存） */
 function readTemplate() {
@@ -20,28 +19,24 @@ const t = (key, opts) => {
 
 function buildLocals({ store, note }) {
   const root = store.root;
-  const isText = note.type === 'text' || note.type === 'code';
   return {
-    // —— Trilium 分享模板的基础 locals（与本项目对齐的子集）——
+    // —— Trilium 自定义分享模板的真实 locals（对齐 share/routes.ts 的 opts）——
+    // 只有这些：note / header / content / isEmpty / subRoot / assetPath /
+    // assetUrlFragment / appPath / showLoginInShareTheme / t / isDev
+    // 注意：没有 utils、没有 cssToLoad / jsToLoad —— 模板不可依赖它们。
     note,
     content: null, // 由 renderSharePage 注入（已改写链接）
     header: '',
     isEmpty: false,
     subRoot: { note: root },
-    cssToLoad: [`${config.shareUrlPrefix}/theme/${config.cssFile}`],
-    jsToLoad: [`${config.shareUrlPrefix}/theme/${config.jsFile}`],
-    faviconUrl: '/favicon.ico',
-    logoUrl: '',
-    isStatic: false,
-    isDev: true,
-    appPath: '',
     assetPath: '',
     assetUrlFragment: '',
+    appPath: '',
+    showLoginInShareTheme: false,
     t,
-    utils,
-    // —— 本项目扩展 ——
+    isDev: true,
+    // —— 本项目扩展（前缀 __ 避免与 Trilium locals 混淆）——
     __dev: {
-      isText,
       rootNoteId: root?.noteId,
       noteId: note.noteId,
       shareId: note.shareId,
