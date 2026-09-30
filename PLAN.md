@@ -269,3 +269,89 @@ Trilium 输出的 `<code>` class 是 **MIME 形式**，实测 5 种形态，Pris
 | `smoke` | **84** | **83** | **60**（`POST_ID=tx5vjdhzMBf3`）|
 | `dom` | **63** | **63** | —（mock 专用）|
 | `unit` / `script-test` | **5** / **24** | — | — |
+
+---
+
+## 阶段 7 · 文章图标（`#iconClass`）渲染到网页 ✅
+
+### 7.1 问题
+
+用户在 Trilium 里给笔记设了图标（右侧属性面板的「图标」→ 写入 `#iconClass`，值为 Boxicons 类名如 `bx bxs-shower`），
+但分享页上看不到 —— 主题为了网页好看只能手工复制 emoji，结果 Trilium 里变成「图标 + emoji」两个。
+
+**根因**：Trilium 官方分享模板只在**左侧导航树**渲染 `note.getIcon()`（`tree_item.ejs` 唯一一处调用）；
+正文 `<h1 id="title">` 与首页卡片（主题自绘）都不读这个 label。
+
+### 7.2 关键事实（核对 TriliumNext/Trilium **v0.105.0** tag 源码）
+
+- 实例版本：`GET /etapi/app-info` → `appVersion: 0.105.0`（buildDate 2026-08-19）。源码仓库是 **`TriliumNext/Trilium`**（非 `TriliumNext/Notes`）。
+- v0.105.0 渲染入口在 `apps/server/src/share/content_renderer.ts` 的 `renderNoteContent()` / `RenderArgs`：
+  模板上下文**确实包含** `utils`、`cssToLoad`、`jsToLoad`、`isStatic`、`faviconUrl`、`logoUrl`、**`iconPackCss`**、**`iconPackSupportedPrefixes`**
+  （此前项目笔记里「没有 utils / cssToLoad / jsToLoad」的说法是**过时的**，已更正）。
+- `iconPackCss` **不是**「一套可挑的离线图标库」，而是「把笔记图标包的字体 + glyph 规则注入页面」的出口：
+  `iconPacks.map(p => generateCss(p, 字体URL)).join()`；内置包只有 **Boxicons v2，prefix `bx`**。
+- 字体 URL：内置包 → `assets/fonts/boxicons.woff2`（相对 `/share/`，**匿名可访问**，实测 200）；
+  自定义包 → `api/attachments/<id>/download`。
+- ⚠️ 自定义图标包有个硬门槛：`.filter(p => p.builtin || !!shaca.notes[p.manifestNoteId])` ——
+  **图标包笔记必须在分享子树内**，否则整包被静默剔除（无任何报错）。
+- `SNote.getIcon(filterByPrefix)`：读 `#iconClass` → 否则 `getNoteIcon()` 按类型兜底，返回 `tn-icon <class>`。
+
+### 7.3 方案（用户选 A：内联图标）
+
+- `mockups/icons-ab-mockup.html` — A（内联，图标与标题同行）/ B（胶囊徽章）双栏对比 + 对比表 + 建议 A。
+- **A 已定稿**；无 `#iconClass` 的笔记**回退为类型默认图标**（对齐 Trilium 桌面端）。
+
+### 7.4 实现
+
+- 主题 `TimelyBlogTheme.ejs`：
+  - 采集 `post.icon = node.getIcon()`；
+  - `isKnownIconClass(cls)` 放行判定（只接受已加载图标包前缀，避免自定义包渲染成空方块）；
+  - 首页卡片 `<h2>` 与详情页 `<h1>` 标题前插 `<i class="{icon} post-icon" aria-hidden="true">`；
+  - `<head>` 注入 `<style id="trilium-icon-packs"><%- iconPackCss %></style>`（Trilium 自己生成，不含用户输入）。
+- 主题 `TimelyBlogTheme.css`：`.post-icon` 尺寸 / 琥珀色（暗色 accent）/ 基线对齐，追加在末尾 banner 段。
+- 主题附 `boxicons.woff2`（115KB，本地调试用；线上由 Trilium 分发，不入 CDN 请求）。
+- share-tool：`ShareNote.getIcon()` + `_defaultIcon()`；`render.js` locals 补 `iconPackCss` / `iconPackSupportedPrefixes`；
+  `config.js` 加字体本地化重写 → `/share/theme/boxicons.woff2`。
+
+### 7.5 踩坑（P1 回归守卫）
+
+- ⚠️ 放行判定**不能**写成 `part.indexOf(p + '-') === 0`：Boxicons 的基础类就是 `bx` 本身（不是 `bx-xxx`），
+  这样写会把整串判否 → **页面上一个图标都没有**。正确写法：`part === p || part.indexOf(p) === 0`。smoke K 段有专项断言。
+
+### 7.6 踩坑二：图标显示为空白（P0，用户实测发现）
+
+**现象**：卡片/标题的 `<i class="bx bxs-shower post-icon">` 标签明明在，页面上却是**空白**。
+
+**根因**：`iconPackCss` 只写了 `@font-face` + `.bx` 基础规则，**漏了逐图标的 glyph 声明**：
+
+```css
+.bx.bxs-shower::before { content: "\ef45"; }   /* ← 缺这一段 */
+```
+
+字体文件里没有「`.bxs-shower` 这个类 ⇒ 对应码点」的映射，`<i>` 就渲染成空字符。
+**光有字体不够，CSS 里必须同时有「类名 → 码点」映射。**
+
+**修复**：
+
+- 从 boxicons 官方 CSS（`cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css`）正则提取，
+  生成 `boxicons-glyphs.json`（**1634 个图标**，格式 `{"bxs-shower": "\\ef45", ...}`）；
+  生成脚本：`tools/gen-boxicons-glyphs.py`。
+- share-tool `render.js` 的 `buildIconPackCss()` 复刻 Trilium 服务端 `icon_packs.generateCss()` 的完整结构：
+  `@font-face` + `.bx` + **逐图标 glyph 声明**。
+- ⚠️ **体积优化（本地特有）**：线上 Trilium 把全量 1634 条内联进**每一页**（≈45KB/页，首页 48KB → **126KB**）。
+  本地改为**按需输出**：`collectUsedGlyphs(store)` 遍历整棵子树所有笔记的 `getIcon()`，
+  只输出命中 glyph 表的类名 → 真实库 **9 条**、页面回到 **48.8KB**。
+  范围故意取「整棵子树」而非「本页可见」，避免「首页正常、详情页空白」随页面漂移。
+
+### 7.7 测试
+
+| 套件 | mock·local | mock·as-is | 真实库 |
+|---|---|---|---|
+| `smoke` | **97** | **96** | **71**（`POST_ID=HvzRWi2r9bUh`）|
+| `dom` | **63** | — | —（mock 专用）|
+| `unit` / `script-test` | **5** / **24** | — | — |
+
+- `smoke` 新增 **K 段**（10 项）：iconPackCss 注入、字体重写（按 `ASSET_MODE` 分支）、卡片/详情页图标、类型回退、放行判定回归。
+- 真实库实测：5 篇文章图标全部对上（`bxs-shower` / `bxs-coffee-bean` / `bxs-palette`，无图标的回退 `bx-note` / `bx-pen`）。
+- `dom` 此前记的 1 项既存失败（外链 `target=_blank`）本次复跑已消失 → **63 / 0**。
+- ⚠️ 库里改了 `render.js` 后**必须重启实例**（ES module 缓存），否则看到的还是旧 CSS。
