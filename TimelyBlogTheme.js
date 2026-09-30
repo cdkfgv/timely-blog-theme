@@ -638,8 +638,12 @@ function getTemplate(id) {
 // AppRoot 模板在 getTemplate 就绪后赋值
 AppRoot.template = getTemplate('tpl-app-root');
 
-document.addEventListener('DOMContentLoaded', () => {
+function boot() {
   const VueAPI = window.Vue;
+  if (!VueAPI) {
+    console.error('[theme] Vue 未加载，页面内容无法渲染（检查 CDN 或 ~shareJs 兜底）');
+    return;
+  }
   ref = VueAPI.ref;
   reactive = VueAPI.reactive;
   computed = VueAPI.computed;
@@ -662,4 +666,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const app = createApp(AppRoot);
   app.mount('#app');
-});
+}
+
+// CDN 失败时会异步注入兜底脚本，所以不能只依赖 DOMContentLoaded
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}

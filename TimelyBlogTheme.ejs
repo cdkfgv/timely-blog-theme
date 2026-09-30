@@ -54,6 +54,22 @@ var blogger = {
 };
 var isFixed = isFixedPage(note);
 var isPostPage = (note.noteId !== subRoot.note.noteId && note.getLabelValue('publish') === 'true') || isFixed;
+
+// ---- 资源兜底 ----
+// CDN 加载失败时回退到 Trilium 自己托管的同一份 code 笔记：
+// 在分享根笔记（或模板笔记）上加 ~shareCss / ~shareJs 关系指向 CSS / JS 笔记即生效，
+// 没加则不会输出 onerror 属性，主流程完全不受影响。URL 格式对齐官方默认主题。
+function firstAssetUrl(relList) {
+  return (relList && relList.length) ? 'api/notes/' + relList[0].value + '/download' : '';
+}
+function assetFallback(kind) {
+  var fromNote = note.getRelations('share' + kind);
+  if (fromNote.length) return firstAssetUrl(fromNote);
+  return firstAssetUrl(subRoot.note.getRelations('share' + kind));
+}
+var cssFallback = assetFallback('Css');
+var jsFallback = assetFallback('Js');
+
 var postDetail = null;
 if (isPostPage) {
   var pd = note.getLabelValue('blogDate');
@@ -89,9 +105,13 @@ window.BLOG_DATA = {
   <title><%= isPostPage ? note.title + ' - ' + site.name : site.name %></title>
   <meta name="description" content="<%= site.description %>">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%220.9em%22 font-size=%2290%22>🐠</text></svg>">
+  <link rel="preconnect" href="https://cdn.jsdmirror.com" crossorigin>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="preconnect" href="https://www.unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://www.unpkg.com/font-online@1.3.2/css/alibaba-pu-hui-ti-3.online.css">
-  
-  <link href="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.css" rel="stylesheet">
+
+  <!-- 主题样式：CDN 为主，~shareCss 关系存在时附带加载失败回退 -->
+  <link href="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.css" rel="stylesheet"<% if (cssFallback) { %> onerror="this.onerror=null;this.href='<%= cssFallback %>'"<% } %>>
   <!-- Vue 3 运行时 + 编译器（支持模板字符串编译） -->
   <script src="https://cdn.jsdmirror.com/npm/vue@3.5.13/dist/vue.global.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/jetbrains-mono@1.0.6/css/jetbrains-mono.min.css">
@@ -105,121 +125,6 @@ window.BLOG_DATA = {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-go.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
-  <style>
-    ::selection { background-color: #d97706; color: #fff; }
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #a8a29e; }
-    .dark ::selection { background-color: #f59e0b; color: #18181b; }
-    .dark ::-webkit-scrollbar-thumb { background: #3f3f46; }
-    .dark ::-webkit-scrollbar-thumb:hover { background: #52525b; }
-    pre[class*="language-"] { margin: 0; padding: 1.125rem; border-radius: 0 0 0.75rem 0.75rem; max-height: 24rem; overflow-y: auto; }
-    code[class*="language-"] { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.7; }
-
-    /* 代码块头部 */
-    .code-block { border-radius: 0.75rem; overflow: hidden; border: 1px solid #e7e5e4; margin: 1.75rem 0; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
-    .dark .code-block { border-color: #27272a; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
-    .code-header { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 1rem; background: #f5f5f4; border-bottom: 1px solid #e7e5e4; border-radius: 0.75rem 0.75rem 0 0; color: #a8a29e; font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; }
-    .dark .code-header { background: #27272a; border-color: #3f3f46; color: #71717a; }
-    .code-block pre { margin: 0 !important; border-radius: 0 0 0.75rem 0.75rem !important; }
-    .copy-btn { font-size: 0.75rem; cursor: pointer; color: #a8a29e; }
-    .copy-btn:hover { color: #57534e; }
-    .dark .copy-btn:hover { color: #d4d4d8; }
-
-    /* 文章正文 */
-    .prose-content { color: #44403c; font-size: 1rem; line-height: 1.9; word-break: break-word; overflow-wrap: break-word; }
-    .dark .prose-content { color: #d4d4d8; }
-    .prose-content h1, .prose-content h2, .prose-content h3, .prose-content h4, .prose-content h5, .prose-content h6 { font-weight: 700; line-height: 1.35; scroll-margin-top: 5rem; color: #1c1917; }
-    .dark .prose-content h1, .dark .prose-content h2, .dark .prose-content h3, .dark .prose-content h4, .dark .prose-content h5, .dark .prose-content h6 { color: #f4f4f5; }
-    .prose-content h1 { font-size: 1.875rem; margin: 2.5rem 0 1.25rem; }
-    .prose-content h2 { font-size: 1.5rem; margin: 2.5rem 0 1rem; padding: 0.625rem 0 0.5rem 0.875rem; border-bottom: 1px solid #e7e5e4; border-left: 3px solid #d97706; }
-    .dark .prose-content h2 { border-bottom-color: #27272a; border-left-color: #f59e0b; }
-    .prose-content h3 { font-size: 1.25rem; margin: 2rem 0 0.75rem; }
-    .prose-content h4 { font-size: 1.1rem; margin: 1.75rem 0 0.625rem; color: #292524; }
-    .dark .prose-content h4 { color: #e4e4e7; }
-    .prose-content h5 { font-size: 1rem; margin: 1.5rem 0 0.5rem; color: #57534e; }
-    .dark .prose-content h5 { color: #a1a1aa; }
-    .prose-content h6 { font-size: 0.9rem; margin: 1.5rem 0 0.5rem; color: #78716c; text-transform: uppercase; letter-spacing: 0.05em; }
-    .dark .prose-content h6 { color: #71717a; }
-    .prose-content p { margin-bottom: 1.25rem; }
-    .prose-content a { color: #b45309; text-decoration: none; background: linear-gradient(to right, #d97706, #d97706) left bottom / 0 1px no-repeat; transition: background-size 0.25s ease, color 0.15s; }
-    .prose-content a:hover { background-size: 100% 1px; color: #92400e; }
-    .dark .prose-content a { color: #fbbf24; background: linear-gradient(to right, #f59e0b , #f59e0b) left bottom / 0 1px no-repeat; }
-    .dark .prose-content a:hover { background-size: 100% 1px; color: #fcd34d; }
-    .prose-content strong { font-weight: 700; color: #1c1917; }
-    .dark .prose-content strong { color: #f4f4f5; }
-    .prose-content em { font-style: italic; }
-    .prose-content ul, .prose-content ol { padding-left: 1.25rem; margin-bottom: 1.25rem; }
-    .prose-content ul { list-style: none; }
-    .prose-content ul > li { position: relative; padding-left: 1rem; }
-    .prose-content ul > li::before { content: ''; position: absolute; left: 0; top: 0.65em; width: 6px; height: 6px; border-radius: 50%; background: #d97706; }
-    .dark .prose-content ul > li::before { background: #f59e0b; }
-    .prose-content ul > li > ul > li::before { width: 5px; height: 5px; border-radius: 0; background: transparent; border: 1.5px solid #d97706; top: 0.7em; }
-    .dark .prose-content ul > li > ul > li::before { border-color: #f59e0b; }
-    .prose-content ol { list-style: none; counter-reset: prose-ol; }
-    .prose-content ol > li { position: relative; padding-left: 1.5rem; counter-increment: prose-ol; }
-    .prose-content ol > li::before { content: counter(prose-ol) '.'; position: absolute; left: 0; top: 0; font-weight: 600; font-size: 0.875em; color: #d97706; font-family: 'JetBrains Mono', monospace; }
-    .dark .prose-content ol > li::before { color: #f59e0b; }
-    .prose-content li { margin-bottom: 0.375rem; line-height: 1.75; }
-    .prose-content code:not([class*="language-"]) { font-family: 'JetBrains Mono', monospace; font-size: 0.85em; background: #fef3c7; color: #92400e; padding: 0.15em 0.45em; border-radius: 0.3rem; border: 1px solid rgba(217,119,6,0.15); }
-    .dark .prose-content code:not([class*="language-"]) { background: #27272a; color: #fbbf24; border-color: rgba(245,158,11,0.15); }
-    .prose-content hr { border: none; margin: 2.5rem 0; height: 1px; background: linear-gradient(to right, transparent, #d6d3d1 20%, #d6d3d1 80%, transparent); }
-    .dark .prose-content hr { background: linear-gradient(to right, transparent, #3f3f46 20%, #3f3f46 80%, transparent); }
-    .prose-content img { max-width: 100%; border-radius: 0.75rem; margin: 1.75rem 0; cursor: zoom-in; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
-    .dark .prose-content img { box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-    .prose-content figure { margin: 1.75rem 0; text-align: center; }
-    .prose-content figure img { display: inline-block; margin: 0; }
-    .prose-content figcaption { font-size: 0.8rem; color: #78716c; margin-top: 0.75rem; line-height: 1.5; font-style: italic; }
-    .dark .prose-content figcaption { color: #71717a; }
-    .prose-content .image-style-align-right { float: right; margin: 0 0 1rem 1.5rem; }
-    .prose-content .image-style-align-left { float: left; margin: 0 1.5rem 1rem 0; }
-    .prose-content .image-style-align-right img,
-    .prose-content .image-style-align-left img { margin: 0; }
-    .prose-content .image-style-align-right figure,
-    .prose-content .image-style-align-left figure { margin: 0; }
-    .prose-content blockquote { border-left: 3px solid #d97706; background: linear-gradient(135deg, rgba(217,119,6,0.06), rgba(217,119,6,0.02)); padding: 1rem 1.25rem 1rem 1.5rem; margin: 1.75rem 0; border-radius: 0 0.75rem 0.75rem 0; color: #57534e; font-style: italic; }
-    .prose-content blockquote p:last-child { margin-bottom: 0; }
-    .dark .prose-content blockquote { border-left-color: #f59e0b; background: linear-gradient(135deg, rgba(245,158,11,0.08), rgba(245,158,11,0.02)); color: #a1a1aa; }
-    .prose-content table { width: 100%; border-collapse: collapse; margin: 1.75rem 0; font-size: 0.875rem; border-radius: 0.5rem; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border: 1px solid #e7e5e4; }
-    .dark .prose-content table { box-shadow: 0 1px 3px rgba(0,0,0,0.2); border-color: #3f3f46; }
-    .prose-content thead th { padding: 0.875rem 1rem; font-weight: 600; text-align: center; background: linear-gradient(to bottom, #fafaf9, #f5f5f4); border-bottom: 2px solid #d6d3d1; color: #44403c; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; }
-    .dark .prose-content thead th { background: linear-gradient(to bottom, #27272a, #1f1f23); border-bottom-color: #52525b; color: #a1a1aa; }
-    .prose-content tbody tr:not(:last-child) { border-bottom: 1px solid #f5f5f4; }
-    .dark .prose-content tbody tr:not(:last-child) { border-bottom-color: #27272a; }
-    .prose-content tbody tr:hover { background: rgba(217,119,6,0.04); }
-    .dark .prose-content tbody tr:hover { background: rgba(245,158,11,0.06); }
-    .prose-content td { padding: 0.75rem 1rem; color: #57534e; }
-    .dark .prose-content td { color: #a1a1aa; }
-    .prose-content del { color: #a8a29e; text-decoration: line-through; }
-    .dark .prose-content del { color: #52525b; }
-    .prose-content mark { background: #fef08a; color: #1c1917; padding: 0.1em 0.35em; border-radius: 0.2em; }
-    .dark .prose-content mark { background: #854d0e; color: #fef08a; }
-    .prose-content kbd { font-family: 'JetBrains Mono', monospace; font-size: 0.8em; background: #f5f5f4; color: #44403c; border: 1px solid #d6d3d1; border-bottom-width: 2px; border-radius: 0.3rem; padding: 0.1em 0.45em; box-shadow: 0 1px 0 #d6d3d1; }
-    .dark .prose-content kbd { background: #27272a; color: #d4d4d8; border-color: #3f3f46; border-bottom-color: #52525b; box-shadow: 0 1px 0 #3f3f46; }
-    .prose-content dl { margin: 1.25rem 0; }
-    .prose-content dt { font-weight: 600; color: #1c1917; margin-top: 0.75rem; }
-    .dark .prose-content dt { color: #e4e4e7; }
-    .prose-content dd { padding-left: 1.25rem; margin-top: 0.25rem; border-left: 2px solid #e7e5e4; }
-    .dark .prose-content dd { border-left-color: #27272a; }
-    .prose-content input[type="checkbox"] { margin-right: 0.5rem; accent-color: #d97706; vertical-align: middle; transform: scale(1.15); }
-    .dark .prose-content input[type="checkbox"] { accent-color: #f59e0b; }
-    .prose-content li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.25rem; }
-    .prose-content li:has(> input[type="checkbox"])::before { display: none; }
-    .prose-content > :first-child { margin-top: 0; }
-    .prose-content > :last-child { margin-bottom: 0; }
-
-    /* 代码块外 */
-    code:not([class*="language-"]):not(.prose-content code) { font-family: 'JetBrains Mono', monospace; font-size: 0.875em; background: #fef3c7; color: #92400e; padding: 0.125rem 0.375rem; border-radius: 0.25rem; }
-    .dark code:not([class*="language-"]):not(.prose-content code) { background: #3f3f46; color: #fbbf24; }
-
-    .toc-drawer { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
-    .toc-drawer.open { max-height: 15rem; overflow-y: auto; }
-
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-    }
-  </style>
 
   <script>
     (function() {
@@ -645,6 +550,6 @@ window.BLOG_DATA = {
 
   <template id="tpl-app-root"><div class="flex flex-col min-h-screen"><div id="reading-progress" class="fixed top-0 left-0 h-0.5 bg-gradient-to-r from-amber-600 to-amber-400 dark:from-amber-500 dark:to-yellow-400 z-[9999] transition-all" :style="{ width: progress + '%' }"></div><app-header @toggle-search="G.searchOpen.value = true"></app-header><div class="flex-1 flex flex-col max-w-[100rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14"><div class="flex-1 grid lg:grid-cols-[1fr_270px] lg:items-start gap-10 xl:gap-12"><main id="main-scroll" class="min-w-0" ref="mainEl"></main><app-sidebar></app-sidebar></div></div><div class="mt-auto"><app-footer class="py-4"></app-footer></div><search-modal></search-modal><back-to-top></back-to-top><lightbox></lightbox></div></template>
 
-<script src="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.js"></script>
+<script src="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.js"<% if (jsFallback) { %> onerror="(function(){var s=document.createElement('script');s.src='<%= jsFallback %>';document.head.appendChild(s);})()"<% } %>></script>
 </body>
 </html>

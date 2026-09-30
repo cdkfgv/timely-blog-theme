@@ -45,24 +45,18 @@
 > 理由：域名已映射到 `/share`，本身免登录可访问；把 CSS/JS 推到 GitHub 走 CDN，一是**边缘缓存加速**（尤其封面流量、NAS 上行带宽有限），二是**博客内容就该公开分享**。此处不再讨论内迁，只做 CDN 路线下的优化。
 
 - [x] ~~2.2 资源改 `~shareCss` / `~shareJs`~~ — **撤销，不做**（见上方决策）
-- [ ] **2.1 prose 样式出 EJS** — 模板里约 110 行内联 `<style>` 挪进 CSS 笔记，EJS 每次渲染少下发一段静态文本（CSS 笔记仍按现有流程推 CDN，与托管方式无关）
-- [ ] **2.2a 缓存策略** — 现在写死 `@main`：
-  - 换**版本 tag 或 commit SHA**（如 `@v1.4.0` / `@<sha>`），jsDelivr 对不可变引用可长期强缓存，比 `@main` 命中率高、也不用等 CDN 清缓存
-  - 推送后若 URL 不变，加 `?v=<hash>` 做失效；否则新样式要等 CDN TTL
-  - 收益：首字节更快 + 更新可控
-- [ ] **2.2b CDN 兜底（推荐加）** — CDN 挂了/被墙时页面无样式，很难看：
-  ```html
-  <link rel="stylesheet" href="CDN" onerror="this.onerror=null;this.href='/share/theme/TimelyBlogTheme.css'">
-  ```
-  JS 同理加载失败回退本地。等价于「CDN 主 + Trilium 内托管兜底」两全，也顺带说明：`~shareCss`/`~shareJs` 并非无用，做兜底比放 CDN 更合适（同域、随笔记库版本走）
-- [ ] **2.2c 预连接** — `<link rel="preconnect" href="https://cdn.jsdmirror.com" crossorigin>`，省一次 DNS+TLS 往返
-- [ ] **2.3 依赖收敛** — 4 个外部源 → 1~2 个（与托管方式无关，纯体积/请求数）
-  | 现状 | 处理 |
-  |---|---|
-  | FontAwesome 全量 CSS + webfont（为十几个图标） | 换内联 SVG / iconfont 子集，省 ~100KB |
-  | Prism 7 个语言包 + 双主题（9 个请求） | 只留实际用到的语言；双主题用一份 CSS + 变量 |
-  | 字体（unpkg） | 保留（或并入自家 CDN 仓库一起托管） |
-  | jsdmirror（主题 CSS/JS） | **保留**（用户决策），按 2.2a 加版本/失效参数 |
+- [x] **2.1 手写样式出 EJS → CSS 末尾** — 113 行内联 `<style>`（`::selection`、滚动条、`.code-block`、`.prose-content` 全段、`.toc-drawer`、`prefers-reduced-motion`）迁到 `TimelyBlogTheme.css` 末尾，带醒目 banner 标注「非 Tailwind 产物，重构建后需贴回」。EJS 47,497 → 38,357 字节（**每页少下发 9.1KB**），渲染结果里已无 `<style>`
+  - 用户决策：单文件（不拆第二个 CSS），接受重构建需贴回的人工成本
+- [x] **2.2a 缓存策略** — 用户决策：**保持 `@main`**，不加版本 tag/SHA（避免每次发布多一步改 EJS）；若日后出现明显缓存滞后再切 tag
+- [x] **2.2b CDN 兜底** — EJS 读 `~shareCss` / `~shareJs` 关系生成 `onerror` 回退（对齐官方默认主题的 `api/notes/<id>/download` 写法）：
+  - CSS：`onerror="this.onerror=null;this.href='api/notes/<id>/download'"`
+  - JS：`onerror` 动态注入 `<script>`（因此把主题 JS 的启动从 `DOMContentLoaded` 改成 `readyState` 判断，异步注入也能初始化）
+  - 未配置关系时自动省略该属性，主流程零影响；**需要在 Trilium 分享根笔记上加这两条关系才生效**
+- [x] **2.2c 预连接** — 三个源都加了 `<link rel="preconnect" crossorigin>`（jsdmirror / cdnjs / unpkg）
+- [ ] **2.3 依赖收敛** — 用户决策：图标换**内联 SVG**（需先确认线框稿）
+  - [x] 线框稿：`mockups/icons-mockup.html`（24 个图标逐一对照，左列真实 FontAwesome，含明暗切换、34px 放大对比、场景预演）→ **待你确认**
+  - [ ] 按确认结果改 EJS：`<svg><symbol>` 精灵块 + `class="i i-16"`，删 FontAwesome `all.min.css`
+  - [ ] Prism 语言包按需收敛（低优先，可能延后）
 
 ---
 
