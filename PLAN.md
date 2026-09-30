@@ -6,8 +6,11 @@
 
 ## 工作流约定（两条硬规则）
 
-1. **开发期一律看本地文件**：源码里始终写 CDN 地址（= 最终形态），share-tool 渲染时自动替换为 `/share/theme/<本地文件>`，所以改样式存盘即见，**不需要为了调试改回本地路径**。稳定后再推 GitHub、由 CDN 提供线上服务。
-   - 换版本 tag / SHA 也不影响本地开发：`assetRewrite` 正则匹配任意 ref（`timely-theme@<任意>`），无需改配置。
+1. **开发期看本地文件，发布期切 CDN**：EJS 里两套写法并存 ——
+   - 开发调试期：`note.getRelations("shareCss"/"shareJs")` → `api/notes/<id>/download`（Trilium 托管 Code 笔记），share-tool 渲染时替换为 `/share/theme/<本地文件>`，改样式存盘即见
+   - 发布形态：CDN 地址以 **HTML 注释**保留在旁边，切 CDN 时与上面互换（注释掉 shareCss/shareJs 引用）
+   - 换版本 tag / SHA 不影响本地开发：`assetRewrite` 正则匹配任意 ref（`timely-theme@<任意>`）
+   - 关系必须勾「可继承」，否则子页面取不到
 2. **不主动 push**：我不执行 `npm run push` / 任何 ETAPI 写操作，也不碰 GitHub。本地验证通过后由**你手动**推送。我只做「改代码 + 本地渲染验证 + 报告结果」。
 
 ---
@@ -41,19 +44,24 @@
 ## 阶段 2 · 样式出 EJS + CDN 策略优化
 
 > 目标：EJS 只留数据 + 结构。
-> **托管方案已定（用户决策）：继续用 GitHub CDN，不迁 `~shareCss`/`~shareJs`。**
-> 理由：域名已映射到 `/share`，本身免登录可访问；把 CSS/JS 推到 GitHub 走 CDN，一是**边缘缓存加速**（尤其封面流量、NAS 上行带宽有限），二是**博客内容就该公开分享**。此处不再讨论内迁，只做 CDN 路线下的优化。
-> **发布流程（人工）**：本地开发期一律看 `/share/theme/*` 本地文件（源码写死 CDN 地址，share-tool 渲染时自动替换）→ 确认无误后手动把 CSS/JS 推到 GitHub → CDN 生效。代码里不做任何自动回退或环境判断。
+> **资源引用双形态（用户决策）**：EJS 里同时保留两套写法 —— 开发调试期用 `note.getRelations("shareCss"/"shareJs")` → `api/notes/<id>/download`（Trilium 托管的 Code 笔记），发布形态（CDN）以注释保留。本地确认无误后 → 人工把 CSS/JS 推 GitHub → 注释掉 shareCss/shareJs 引用、启用 CDN。
+> 代码里**不做任何自动回退 / 环境判断**。
+> 注意：`~shareCss` / `~shareJs` 关系必须勾选「**可继承**」，否则只有分享根笔记页面能取到，子页面渲染时 `note` 是子笔记本身、取不到关系 → 无样式。
 
-- [x] ~~2.2 资源改 `~shareCss` / `~shareJs`~~ — **撤销，不做**（见上方决策）
+- [x] ~~2.2 资源改 `~shareCss` / `~shareJs`~~ — 原「淘汰 CDN、全量内迁」方案撤销；现改为**双形态并存**（见上方决策）
 - [x] **2.1 手写样式出 EJS → CSS 末尾** — 113 行内联 `<style>`（`::selection`、滚动条、`.code-block`、`.prose-content` 全段、`.toc-drawer`、`prefers-reduced-motion`）迁到 `TimelyBlogTheme.css` 末尾，带醒目 banner 标注「非 Tailwind 产物，重构建后需贴回」。EJS 47,497 → 38,357 字节（**每页少下发 9.1KB**），渲染结果里已无 `<style>`
   - 用户决策：单文件（不拆第二个 CSS），接受重构建需贴回的人工成本
 - [x] **2.2a 缓存策略** — 用户决策：**保持 `@main`**，不加版本 tag/SHA（避免每次发布多一步改 EJS）；若日后出现明显缓存滞后再切 tag
 - [x] ~~**2.2b CDN 兜底（onerror 自动回退）**~~ — **撤销，不做**（用户决策）
   - 理由：CSS/JS 上传 GitHub、切 CDN 是**人工发布步骤**，代码里不写任何自动判断/回退
-  - 已移除：EJS 里的 `cssFallback`/`jsFallback`（读 `~shareCss`/`~shareJs` 生成 `onerror`）、CSS `onerror` 属性、JS `onerror` 动态注入；只留 `<link>` / `<script>` 的纯 CDN 引用
-  - 保留：`~shareCss`/`~shareJs` 关系由用户在 Trilium 侧自行维护（主题不读）
-  - 备注：主题 JS 启动仍用 `readyState` 判断（同步/异步加载都能初始化，与回退无关）
+  - 已移除：EJS 里的 `cssFallback`/`jsFallback`（读 `~shareCss`/`~shareJs` 生成 `onerror`）、CSS `onerror` 属性、JS `onerror` 动态注入
+  - 备注：主题 JS 启动仍用 `readyState` 判断（与回退无关）
+- [x] **2.2d 开发期引用 Trilium 托管资源**（新增，替代 2.2b 的实际需求）
+  - EJS head 加用户提供的两段循环：`shareCss` → `<link href="api/notes/<id>/download" rel="stylesheet">`、`shareJs` → `<script type="module" src="api/notes/<id>/download">`
+  - CDN 地址**以注释保留**在旁（发布时互换角色）
+  - share-tool 同步支持该形态：`config.hostedAssets`（`PUSH_NOTE_CSS/JS`，mock 用 `themeCss0001/themeJs0001`）+ 按被引用笔记 MIME 兜底 → 本地渲染仍指向 `/share/theme/*`
+  - 修复 share-tool 数据层 bug：**relation 的继承此前完全没实现**（只继承了 label），导致挂在根笔记的 `~shareCss` 在子页面取不到
+  - `type="module"` 影响已静态核查：主题 JS 无顶层 `this`、无隐式全局、无严格模式禁用语法
 - [x] **2.2c 预连接** — 三个源都加了 `<link rel="preconnect" crossorigin>`（jsdmirror / cdnjs / unpkg）
 - [ ] **2.3 依赖收敛** — 用户决策：图标换**内联 SVG**（需先确认线框稿）
   - [x] 线框稿：`mockups/icons-mockup.html`（24 个图标逐一对照，左列真实 FontAwesome，含明暗切换、34px 放大对比、场景预演）→ **待你确认**
