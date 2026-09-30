@@ -22,6 +22,7 @@ function addNote(note, parentId) {
 
 const content = new Map();
 const label = (name, value, isInheritable = false) => ({ attributeId: 'a_' + name + value, type: 'label', name, value, position: 10, isInheritable });
+const relation = (name, value) => ({ attributeId: 'r_' + name + value, type: 'relation', name, value, position: 10, isInheritable: false });
 
 /* ---- 站点根 ---- */
 addNote(
@@ -40,10 +41,25 @@ addNote(
       label('bloggerBio', '全栈开发者，关注前后端与基础设施。'),
       label('bloggerEmail', 'me@example.com'),
       label('bloggerGithub', 'https://github.com/example'),
+      // 资源兜底：CDN 挂了回退到这两份 code 笔记
+      relation('shareCss', 'themeCss0001'),
+      relation('shareJs', 'themeJs0001'),
     ],
   },
   null,
 );
+
+/* ---- 主题资源 code 笔记（模拟 Trilium 里托管的那两份，不出现在导航） ---- */
+addNote(
+  { noteId: 'themeCss0001', title: 'timely-theme.css', type: 'code', mime: 'text/css', attributes: [label('shareHiddenFromTree', '')] },
+  'root0000blog',
+);
+content.set('themeCss0001', '/* mock 兜底 CSS：CDN 加载失败时才会用到 */\n:root { --mock-fallback-css: 1; }\n');
+addNote(
+  { noteId: 'themeJs0001', title: 'timely-theme.js', type: 'code', mime: 'text/javascript', attributes: [label('shareHiddenFromTree', '')] },
+  'root0000blog',
+);
+content.set('themeJs0001', '/* mock 兜底 JS */\nwindow.__MOCK_FALLBACK_JS__ = 1;\n');
 
 /* ---- 文章容器（模拟分组，用来验证递归遍历） ---- */
 addNote({ noteId: 'folder000001', title: '2026', type: 'book' }, 'root0000blog');

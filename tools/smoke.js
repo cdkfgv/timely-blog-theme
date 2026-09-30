@@ -184,6 +184,26 @@ for (const [file, typeHint] of [[config.cssFile, /^text\/css/], [config.jsFile, 
   check(`GET /theme/${file} → 200 且 MIME 正确`, res.status === 200 && typeHint.test(ct), `status=${res.status} ct=${ct}`);
 }
 
+// ---- F. CDN 兜底 ----
+console.log('\nF. CDN 回退（~shareCss / ~shareJs 关系）');
+const relCss = (home.body.match(/onerror="this\.onerror=null;this\.href='([^']+)'"/) || [])[1];
+const relJs = (home.body.match(/s\.src='([^']+)';document\.head\.appendChild/) || [])[1];
+if (!relCss && !relJs) {
+  console.log('  ! 未配置 ~shareCss / ~shareJs 关系，跳过（可选配置，主流程不受影响）');
+} else {
+  check('CSS 回退地址已注入', !!relCss, '未在页面里找到 css onerror');
+  check('JS 回退地址已注入', !!relJs, '未在页面里找到 js onerror');
+  for (const [label, rel, typeHint] of [
+    ['CSS', relCss, /^text\/css/],
+    ['JS', relJs, /javascript/],
+  ]) {
+    if (!rel) continue;
+    const res = await fetch(`${BASE}${PREFIX}/${rel}`);
+    const ct = res.headers.get('content-type') || '';
+    check(`${label} 回退地址可用（${rel}）`, res.status === 200 && typeHint.test(ct), `status=${res.status} ct=${ct}`);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 
 console.log(`\n[smoke] 通过 ${pass} 项，失败 ${fail} 项\n`);
