@@ -52,7 +52,7 @@
 
   /* ============ 主体两列 grid ============ */
   .wrap {
-    max-width: 68rem;
+    max-width: 92.5rem;
     margin: 0 auto;
     padding: 2.5rem 1.5rem;             /* py-10 px-6 */
     display: grid;
@@ -74,8 +74,8 @@
   .card .meta { margin-top: 0.75rem; font-size: 12px; color: #a8a29e; }
 
   /* ============ 右侧：本次要验证的对象 ============
-     ⚠️ 主题里容器是 max-w-[100rem] / px-5 sm:px-8 xl:px-10，
-        这里 mockup 缩小成 68rem / 1.5rem 以便整页可见 ——
+     ⚠️ 主题里容器是 max-w-[92.5rem] / px-5 sm:px-8 xl:px-10，
+        这里 mockup 用同样的 92.5rem、只把内边距缩成 1.5rem 以便整页可见 ——
         但 left 的**公式结构完全一致**，是等比例复刻。
      ⚠️ mockup 里 .wrap 没有 transform/filter/perspective/contain，
         与真实页一致（否则会破坏 fixed 的包含块）。 */
@@ -83,8 +83,8 @@
     position: fixed;
     top: 6rem;                                  /* = header 3.5rem + 容器 py-10 2.5rem = 96px */
     --aside-pad: 1.5rem;
-    --aside-inner: calc(min(100vw, 68rem) - 2 * var(--aside-pad));
-    left: calc(max(0px, (100vw - 68rem) / 2) + var(--aside-inner) - 270px);
+    --aside-inner: calc(min(100vw, 92.5rem) - 2 * var(--aside-pad));
+    left: calc(max(0px, (100vw - 92.5rem) / 2) + var(--aside-inner) - 270px);
     width: 270px;
     max-height: calc(100vh - 6rem - 1.5rem);    /* 视口高 − 固定位 − 底部留白 */
     overflow-y: auto;
@@ -117,7 +117,7 @@
 
   /* ============ 底部标尺：帮助你看滚动位置 ============ */
   .ruler {
-    max-width: 68rem;
+    max-width: 92.5rem;
     margin: 0 auto 3rem;
     padding: 1rem 1.5rem;
     font-size: 12px;

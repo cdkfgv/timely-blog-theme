@@ -2245,8 +2245,8 @@ article h1 .post-icon { font-size: 1em; }
  *   与 grid 布局逐像素一致）：
  *
  *     left = 容器居中偏移 + 容器内容宽 − 卡片宽(270px)
- *          = max(0, (100vw − 100rem)/2)          ← mx-auto 居中偏移
- *            + min(100vw, 100rem) − 2×内边距      ← 容器内容宽
+ *          = max(0, (100vw − 92.5rem)/2)         ← mx-auto 居中偏移
+ *            + min(100vw, 92.5rem) − 2×内边距     ← 容器内容宽
  *            − 270px                              ← 减去卡片自身宽度
  *
  *   化简后：left = 容器居中偏移 + 容器内容区右边缘 − 270px
@@ -2262,10 +2262,13 @@ article h1 .post-icon { font-size: 1em; }
  *     改成 fixed 后 aside 脱离文档流 → 那 2.5rem 的 padding-top **不会**再推它，
  *     所以必须显式补进 top，否则会「凭空上移 24px」（踩过：写成 4.5rem 导致偏上）。
  *
- *     top = header 3.5rem + py-10 2.5rem + 呼吸间距 1rem = 7rem (112px)
+ *     top = header 3.5rem + py-10 2.5rem = 6rem (96px)
+ *     ⚠️ **只有这两项，不要加"呼吸间距"**：96px 已经含 header 到卡片的 40px 净间距。
+ *        曾写成 7rem(112px) 多加 16px → 用户报「比初始高度矮了大概 16px」。
  *
  * ⚠️ 依赖的上游值（改任一处，下面 top / left 公式要同步改；smoke L 段有守卫）：
- *     · 容器 max-width  100rem (1600px)   ← EJS: max-w-[100rem]
+ *     · 容器 max-width  92.5rem (1480px)  ← EJS: max-w-[92.5rem]
+ *       （收窄自 100rem：原值在 1600px 视口贴满，右侧被侧栏占掉 318px 显得不居中）
  *     · 容器内边距      sm:2rem / xl:2.5rem ← EJS: px-5 sm:px-8 xl:px-10
  *     · 容器竖向内边距  py-10 = 2.5rem     ← EJS: 主体容器的 py-10
  *     · 两列断点        lg = 64rem (1024px) ← aside 是 hidden lg:block
@@ -2273,7 +2276,7 @@ article h1 .post-icon { font-size: 1em; }
  *     · header 高度     3.5rem (56px)     ← EJS: h-14
  *
  * ⚠️ 高度上限同步按新 top 推导：
- *     max-height = 100vh − top(7rem) − 底部留白(1.5rem)
+ *     max-height = 100vh − top(6rem) − 底部留白(1.5rem)
  *
  * ⚠️ fixed 元素不参与 grid 布局 → aside 不能再有 self-start（已移除）。
  *   祖先链上没有 transform/filter/perspective/contain（已核查），
@@ -2289,10 +2292,11 @@ article h1 .post-icon { font-size: 1em; }
                        （96px），这 96px 本身就含 header 56 到卡片 40px 的净间距，已经够了。
                        曾写成 7rem(112px) 多加了 16px → 用户报「比初始高度矮了大概 16px」。 */
 
-    /* 水平：对齐 grid 右列。内边距按断点分段（sm:2rem → xl:2.5rem） */
+    /* 水平：对齐 grid 右列。内边距按断点分段（sm:2rem → xl:2.5rem）
+       ⚠️ 92.5rem = EJS 的 max-w-[92.5rem]（容器收窄以让整块居中，见 EJS 注释） */
     --aside-pad: 2rem;
-    --aside-inner: calc(min(100vw, 100rem) - 2 * var(--aside-pad));
-    left: calc(max(0px, (100vw - 100rem) / 2) + var(--aside-inner) - 270px);
+    --aside-inner: calc(min(100vw, 92.5rem) - 2 * var(--aside-pad));
+    left: calc(max(0px, (100vw - 92.5rem) / 2) + var(--aside-inner) - 270px);
 
     /* 高度：不滚动 —— 用视口高减去上下留白；真的超出时才内部滚兜底 */
     max-height: calc(100vh - 6rem - 1.5rem);
@@ -2322,4 +2326,19 @@ article h1 .post-icon { font-size: 1em; }
   .dark aside.aside-fixed::-webkit-scrollbar-thumb {
     background-color: var(--color-zinc-700, #3f3f46);
   }
+}
+
+/* ==========================================================================
+ * ⚠️ Tailwind 任意值类补声明（手写段，重建 Tailwind 会被覆盖，需贴回）
+ * --------------------------------------------------------------------------
+ * EJS 里新写的 `max-w-[92.5rem]` **不在 Tailwind 构建产物里** ——
+ * Tailwind 只在构建时扫描当时 EJS 里出现过的类名，之前是 100rem（见上面
+ * @layer utilities 里的 .max-w-[100rem]），改成 92.5rem 后产物不会自动更新。
+ * 只改 EJS 的 class 名 → **不生效**（页面会悄悄退回无 max-width）。
+ *
+ * 覆盖范围：header 内层 / 主体容器 / 详情页内层 / 页脚内层，共 4 处。
+ * 与 aside.aside-fixed 的 left 公式引用的 92.5rem 必须一致（smoke L 段有守卫）。
+ * ========================================================================== */
+.max-w-\[92\.5rem\] {
+  max-width: 92.5rem;
 }

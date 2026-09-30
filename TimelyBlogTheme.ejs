@@ -335,7 +335,7 @@ var year = new Date().getFullYear();
 
     <!-- ==================== 顶部导航 ==================== -->
     <header class="sticky top-0 z-50 h-14 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border-b border-[#f5f5f4] dark:border-zinc-700/50 shadow-sm dark:shadow-zinc-950/20">
-      <div class="max-w-[100rem] mx-auto px-5 sm:px-8 xl:px-10 h-full flex items-center justify-between">
+      <div class="max-w-[92.5rem] mx-auto px-5 sm:px-8 xl:px-10 h-full flex items-center justify-between">
         <a href="./" class="flex items-center gap-2 text-base font-bold text-stone-800 dark:text-zinc-100 hover:text-amber-600 dark:hover:text-accent transition-colors">
           <i class="fa-solid fa-terminal text-amber-600 dark:text-accent"></i>
           <span><%- esc(site.name) %></span>
@@ -373,17 +373,25 @@ var year = new Date().getFullYear();
     </header>
 
     <!-- ==================== 主体 ==================== -->
-    <div class="flex-1 flex flex-col max-w-[100rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14">
+    <% /* ⚠️ 容器宽度 100rem(1600px) → 92.5rem(1480px)。
+           原因：1600px 时容器贴满视口（两侧留白 0），而右侧被侧栏+间距占掉 318px，
+           导致「正文列视觉重心」比视口中心偏左 159px —— 观感就是「右侧空白比左侧大、
+           整体不居中」。收窄到 1480px 后整块（正文+间距+侧栏）左右各留白 60px 对称。
+           ⚠️ 这个值被 CSS 里 aside.aside-fixed 的 left / top 公式引用，改这里要同步改那边
+              （smoke L 段有守卫会报错）。 */ %>
+    <div class="flex-1 flex flex-col max-w-[92.5rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14">
       <div class="flex-1 grid lg:grid-cols-[1fr_270px] lg:items-start gap-10 xl:gap-12">
         <main id="main" class="min-w-0">
 <% if (isPostPage) { %>
 
           <!-- ========== 文章详情 ========== -->
-          <% /* 内边距是两层：外层主体容器已有一层，这里再叠一层 —— 这是旧版的原样
-                （旧版 tpl-post-detail-view 根节点自带整套 px/py，Vue 把它挂进带内边距的
-                <main id="main-scroll"> 里，视觉上就是两层）。去掉会明显变紧（正文贴边），
-                刻意保留，别当重复样式清理。 */ %>
-          <div class="max-w-[100rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14 dark:bg-zinc-900/50 rounded-xl">
+          <% /* 内边距原本是两层：外层主体容器一层 + 这里一层（旧版 tpl-post-detail-view
+               根节点自带整套 px/py，Vue 把它挂进带内边距的 <main id="main-scroll">，视觉上两层）。
+               ⚠️ 水平 px 两层必须保留：去掉会明显变紧（正文贴边）—— 这是此前修过的真实回归。
+               ⚠️ 垂直**上**内边距已去掉（py-10 → pt-0）：它会让正文比右侧侧栏低 40px，
+                  顶部明显错位。去掉后正文顶边 = 外层容器的 py-10 → 与侧栏同为 96px。
+                  底部 pb-28 md:pb-14 保留不变。 */ %>
+          <div class="max-w-[92.5rem] mx-auto w-full px-5 sm:px-8 xl:px-10 pt-0 pb-28 md:pb-14 dark:bg-zinc-900/50 rounded-xl">
             <article>
               <% if (!isFixed) { %>
               <header class="mb-8 pb-6 border-b border-stone-200 dark:border-zinc-800">
@@ -590,11 +598,13 @@ var year = new Date().getFullYear();
                  要做到「一次都不动」，只能脱离文档流，走 fixed。
 
               ⚠️ fixed 的代价：脱离文档流后不再自动对齐 grid 列，得自己算水平位置。
-                 公式（已在 5 个视口宽度验证过，与 grid 布局逐像素一致）：
+                 公式（已在 1024 / 1200 / 1279 / 1280 / 1600 / 1920 / 2560 七个宽度
+                 逐一验算，与 grid 布局逐像素一致）：
                    左偏移 = 容器居中偏移 + 容器内容宽 − 270（卡片自身宽）
-                 其中 容器内容宽 = min(100vw, 100rem) − 2×内边距，
+                 其中 容器内容宽 = min(100vw, 92.5rem) − 2×内边距，
                  min()/max() 让它在「容器未满宽」与「容器已满宽居中」两种情形下都成立。
-                 垂直：top = 4.5rem（header 3.5rem / 56px + 16px 间距）。
+                 垂直：top = 6rem（header 3.5rem/56px + 容器 py-10 2.5rem/40px），
+                 不要加"呼吸间距"——96px 本身已含 header 到卡片的净间距。
 
               ⚠️ 所有规则写在 TimelyBlogTheme.css 末尾 banner 段的 aside.aside-fixed 里
                  （Tailwind 产物没有这些任意值/函数类）。
@@ -603,7 +613,7 @@ var year = new Date().getFullYear();
               保留 w-[270px] / shrink-0 供 Tailwind 断点类判断；self-start 已无意义
               （fixed 元素不参与 grid 布局），故移除以避免误导。 */ %>
         <aside class="hidden lg:block w-[270px] shrink-0 space-y-4 aside-fixed">
-          <div class="p-5 rounded-xl bg-white dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/50">
+          <div class="p-5 md:p-6 rounded-xl bg-white dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/50">
             <div class="flex items-start gap-3 mb-4">
               <img src="<%- esc(avatarUrl) %>" class="w-14 h-14 rounded-full border-2 border-stone-200 dark:border-zinc-700 shrink-0" alt="avatar">
               <div class="min-w-0">
@@ -683,7 +693,7 @@ var year = new Date().getFullYear();
     <!-- ==================== 页脚 ==================== -->
     <div class="mt-auto">
       <footer class="border-t border-stone-200 dark:border-zinc-800 py-4">
-        <div class="max-w-[100rem] mx-auto px-5 sm:px-8 xl:px-10 flex items-center justify-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
+        <div class="max-w-[92.5rem] mx-auto px-5 sm:px-8 xl:px-10 flex items-center justify-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
           <div>© <%= year %> <%- esc(site.name) %>. All rights reserved.</div>
           <% if (site.icp) { %>
           <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" class="text-sky-600 dark:text-sky-400 hover:underline"><%- esc(site.icp) %></a>
