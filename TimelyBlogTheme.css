@@ -2205,3 +2205,25 @@ pre:has(> code.hljs) { margin: 0; padding: 1.125rem; border-radius: 0 0 0.75rem 
 .prose-content code.hljs:not(pre code) { padding: 0; background: none; border: 0; }
 /* 代码块内的等宽留白：hljs 会把换行也包进 span，避免行高塌陷 */
 .code-block pre code.hljs { display: block; white-space: pre; tab-size: 2; }
+
+/* ==========================================================================
+ * 文章图标（#iconClass / Boxicons）
+ * --------------------------------------------------------------------------
+ * 数据源：Trilium 笔记的「设置图标」→ #iconClass（如 "bx bxs-shower"）。
+ * 分享页默认只在左侧树渲染它；这里把它搬到首页卡片与详情页标题上。
+ * 字体由 Trilium 的 iconPackCss 注入（@font-face 指向 boxicons.woff2），
+ * 本段只负责尺寸、颜色、对齐 —— 与标题文字同色系但用琥珀色做视觉锚点。
+ * ========================================================================== */
+.post-icon {
+  display: inline-block;
+  margin-right: 0.5rem;
+  font-size: 1.05em;
+  line-height: 1;
+  vertical-align: -0.12em;   /* 与标题基线对齐 */
+  color: var(--color-amber-600, #d97706);
+  flex: none;
+}
+.dark .post-icon { color: var(--color-accent, #fbbf24); }
+/* 详情页标题更大，图标同比放大 */
+#post-content + * .post-icon,
+article h1 .post-icon { font-size: 1em; }

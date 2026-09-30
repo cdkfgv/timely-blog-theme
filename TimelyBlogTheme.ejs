@@ -75,7 +75,10 @@ function collect(node, depth) {
       category: node.getLabelValue('blogCategory') || '',
       summary: node.getLabelValue('blogSummary') || '',
       tags: node.getLabelValues('blogTags') || [],
-      cover: node.getLabelValue('headerImage') || ''
+      cover: node.getLabelValue('headerImage') || '',
+      /* 笔记图标：Trilium 里「设置图标」写入的 #iconClass（Boxicons，如 "bx bxs-shower"）。
+         未设时由 getIcon() 按笔记类型兜底（对齐桌面端行为）。 */
+      icon: typeof node.getIcon === 'function' ? node.getIcon() : ''
     });
   }
   var children = node.getChildNotes();
@@ -127,6 +130,31 @@ var postDate = dayOf(note.getLabelValue('blogDate')) || dayOf(note.utcDateModifi
 var postCategory = note.getLabelValue('blogCategory') || '';
 var postTags = note.getLabelValues('blogTags') || [];
 var postIdx = posts.findIndex(function (p) { return p.id === note.shareId; });
+
+/* ---- 笔记图标（#iconClass）----
+   实现在 Trilium 的「设置图标」里，值形如 "bx bxs-shower"（Boxicons）。
+   分享页默认只在左侧树里渲染它；这里把它拿到首页卡片 + 详情页标题上，做到「Trilium 里设一次，网页跟着显示」。
+   ⚠️ 只接受「已加载的图标包前缀」—— Boxicons 有两个基础类：bx（regular）/ bxs（solid），
+      两者都以 "bx" 开头；自定义图标包在分享页未必被加载，放行会渲染成空方块。
+   ⚠️ 判定是「等于前缀」或「以 前缀s- / 前缀- 开头」，不能写成 `indexOf(p + '-') === 0`：
+      那样 "bx" 本身（基础类）会被判为不匹配，整串被丢弃 → 图标不显示。 */
+var iconPrefixes = (typeof iconPackSupportedPrefixes !== 'undefined' && iconPackSupportedPrefixes) || ['bx'];
+function isKnownIconClass(cls) {
+  var parts = String(cls || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return false;
+  // 至少有一个类命中「基础类本身」或「前缀开头的图标类」
+  return parts.some(function (part) {
+    return iconPrefixes.some(function (p) {
+      return part === p || part.indexOf(p) === 0;
+    });
+  });
+}
+function noteIcon(node) {
+  if (!node || typeof node.getIcon !== 'function') return '';
+  var cls = String(node.getIcon() || '').trim();
+  return isKnownIconClass(cls) ? cls : '';
+}
+var postIcon = noteIcon(note);
 var prevPost = postIdx > -1 && postIdx < posts.length - 1 ? posts[postIdx + 1] : null;
 var nextPost = postIdx > 0 ? posts[postIdx - 1] : null;
 
@@ -267,6 +295,15 @@ var year = new Date().getFullYear();
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
+  <!-- 图标包（Boxicons v2）：Trilium 服务端已把 iconPackCss 算好注入模板上下文
+       （v0.105.0 的 RenderArgs 含 iconPackCss / iconPackSupportedPrefixes），
+       这里直接 raw 输出即可 —— 内容由 Trilium 自己生成（@font-face + .bx 规则），不含用户输入。
+       用途：把文章笔记的 #iconClass（如 "bx bxs-shower"）在首页卡片与详情页标题上渲染出来。
+       注意：share-tool 本地渲染时会注入一份等价 CSS（字体指向主题仓库的 boxicons.woff2）。 -->
+  <% if (typeof iconPackCss !== 'undefined' && iconPackCss) { %>
+  <style id="trilium-icon-packs"><%- iconPackCss %></style>
+  <% } %>
+
   <!-- 尽早决定明/暗，避免首屏闪白 -->
   <script>
     (function() {
@@ -350,7 +387,7 @@ var year = new Date().getFullYear();
             <article>
               <% if (!isFixed) { %>
               <header class="mb-8 pb-6 border-b border-stone-200 dark:border-zinc-800">
-                <h1 class="text-2xl md:text-3xl font-bold text-stone-800 dark:text-zinc-100 mb-4 leading-tight"><%- esc(note.title) %></h1>
+                <h1 class="text-2xl md:text-3xl font-bold text-stone-800 dark:text-zinc-100 mb-4 leading-tight"><% if (postIcon) { %><i class="<%- esc(postIcon) %> post-icon" aria-hidden="true"></i><% } %><%- esc(note.title) %></h1>
                 <div class="flex flex-wrap items-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
                   <span><i class="fa-regular fa-calendar mr-1"></i><%- esc(postDate) %></span>
                   <% if (postCategory) { %>
@@ -422,7 +459,7 @@ var year = new Date().getFullYear();
                   <img src="<%- esc(p.cover) %>" alt="" class="w-full h-40 object-cover rounded-lg mb-4" loading="lazy">
                   <% } %>
                   <h2 class="text-lg md:text-xl font-semibold text-stone-800 dark:text-zinc-100 mb-3 relative z-10">
-                    <a href="./<%- esc(p.id) %>" class="hover:text-amber-600 dark:hover:text-accent"><%- esc(p.title) %></a>
+                    <% if (p.icon) { %><i class="<%- esc(p.icon) %> post-icon" aria-hidden="true"></i><% } %><a href="./<%- esc(p.id) %>" class="hover:text-amber-600 dark:hover:text-accent"><%- esc(p.title) %></a>
                   </h2>
                   <% if (p.summary) { %>
                   <p class="text-sm text-stone-500 dark:text-zinc-400 mb-4 line-clamp-2"><%- esc(p.summary) %></p>
