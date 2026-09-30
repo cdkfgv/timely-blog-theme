@@ -16,7 +16,7 @@
  *   I. canvas（Excalidraw）笔记
  *   J. 代码高亮（highlight.js 引用 / 语言名归一 / 5 种 MIME 形态）
  *   K. 笔记图标（#iconClass → 首页卡片 / 详情页标题）
- *   L. 侧边栏固定在视口（吸顶 + 限高 + 内部滚动 / 不被 header 遮挡）
+ *   L. 侧边栏完全固定（position: fixed / left 公式跨文件对齐）
  */
 
 import fs from 'node:fs';
@@ -474,23 +474,26 @@ if (iconClone) {
 }
 
 /* ------------------------------------------------------------------
-   L 段 · 侧边栏固定在视口（吸顶 + 限高 + 内部滚动）
+   L 段 · 侧边栏**完全固定**（position: fixed）
    ------------------------------------------------------------------
-   演变（三次）：
+   演变（四次）：
      ① `sticky top-[2.5rem]`（40px）→ 吸顶后被 header（h-14 = 56px）压住 16px；
-     ② `sticky top-[4.5rem]`（72px = header + 16px 间距）+ z-index:20 → 修好遮挡；
-     ③ 去掉 sticky 改静态排布；④ **最终：固定不动** ——
-        sticky 吸顶 + max-height 限高 + overflow-y 内部滚动，
-        滚左侧正文时右侧一直在原位，右侧内容长了由它自己滚。
+     ② `sticky top-[4.5rem]` + z-index:20 → 修好遮挡；
+     ③ 去掉 sticky 改静态排布；
+     ④ `sticky top:4.5rem` + max-height + overflow-y（吸顶+限高+内部滚）；
+     ⑤ **最终：position: fixed** —— sticky 再怎么调都有「先滚一段再吸住」，
+        用户要的是「一次都不动」，只能脱离文档流。
 
-   守卫思路：
-     - aside 必须带自定义类 `aside-sticky`（用于 CSS 手写规则）
-     - CSS 里该规则必须同时有 top / max-height / overflow-y —— 三者缺一不算「固定」
-     - 跨文件对齐：top ≥ header 高度（不硬编码 3.5rem，从 EJS 读 h-N 换算）
-     - `self-start` 必须保留（grid 子项不被拉伸）
+   守卫思路（L 段是**纯源码静态校验**，mock / 真实库都跑）：
+     - aside 必须带自定义类 `aside-fixed`，且**不得**再带 `self-start`
+       （fixed 元素不参与 grid 布局，留着会误导）
+     - CSS 规则必须 `position: fixed` + `top` + `left` + `max-height` + `overflow-y`
+     - 跨文件对齐：从 EJS 读容器 max-width / 内边距 / 卡片宽 / header 高度，
+       校验 CSS 公式里引用的常量与之一致（改一处不改另一处 → 报错）
+     - 渲染结果必须带 `aside-fixed`
    ------------------------------------------------------------------ */
 
-/* 读取主题源码（EJS + CSS）做静态校验 —— 这两个是纯源码事实，mock/真实库都跑 */
+/* 读取主题源码（EJS + CSS）做静态校验 */
 let themeEjsSrc = '';
 let themeCssSrc = '';
 try {
@@ -498,70 +501,139 @@ try {
   themeCssSrc = fs.readFileSync(themePath(config.cssFile), 'utf8');
 } catch { /* 下面断言会各自报错 */ }
 
-/* L1 · header 高度（h-14 是 Tailwind 的 --spacing 倍数，1 = 0.25rem） */
+/* L1 · 从 EJS 读出上游常量（不硬编码，改了就报错） */
 const headerSpacing = themeEjsSrc.match(/<header[^>]*class="[^"]*\bh-(\d+)\b/);
 const headerRem = headerSpacing ? Number(headerSpacing[1]) * 0.25 : null;
 check('能从 EJS 读出 header 高度（h-N 工具类）',
   headerRem !== null, '未匹配到 <header> 上的 h-* 类');
 
-/* L2 · 取出 aside 元素的完整 class 字符串 */
+const containerMaxW = themeEjsSrc.match(/class="[^"]*\bmax-w-\\?\[(\d+)rem\\?\]/);
+const containerRem = containerMaxW ? Number(containerMaxW[1]) : null;
+check('能从 EJS 读出内容容器 max-width（max-w-[Nrem]）',
+  containerRem !== null, '未匹配到容器上的 max-w-[*rem]');
+
+const asideWidth = themeEjsSrc.match(/<aside[^>]*class="[^"]*\bw-\\?\[(\d+)px\\?\]/);
+const asideW = asideWidth ? Number(asideWidth[1]) : null;
+check('能从 EJS 读出侧边栏宽度（w-[Npx]）',
+  asideW !== null, '未匹配到 <aside> 上的 w-[*px]');
+
+/* L2 · aside 的 class */
 const asideTag = themeEjsSrc.match(/<aside[^>]*>/);
 const asideClass = asideTag
   ? (asideTag[0].match(/class="([^"]*)"/) || [, ''])[1]
   : '';
 check('能从 EJS 里取到 <aside> 的 class',
   asideClass.length > 0, '未匹配到 <aside ... class="...">');
+check('侧边栏带 aside-fixed 类（完全固定用的自定义类）',
+  /(^|\s)aside-fixed(\s|$)/.test(asideClass),
+  `aside class = "${asideClass}"，缺少 aside-fixed`);
+check('侧边栏已移除 self-start（fixed 元素不参与 grid 布局）',
+  !/\bself-start\b/.test(asideClass),
+  'fixed 后 self-start 已无意义，留着会误导（脱离文档流后不由 grid 决定位置）');
+check('侧边栏不再用 sticky（sticky 必有"先滚一段"的过程）',
+  !/\bsticky\b/.test(asideClass),
+  'aside 仍带 sticky —— sticky 的语义是随滚动走一段再吸住，做不到"一次都不动"');
 
-/* L3 · aside 必须挂上自定义吸顶类 */
-check('侧边栏带 aside-sticky 类（固定视口用的自定义类）',
-  /(^|\s)aside-sticky(\s|$)/.test(asideClass),
-  `aside class = "${asideClass}"，缺少 aside-sticky`);
-
-/* L4 · `self-start` 必须保留：父级是 grid，不加它卡片会被拉伸成与左侧等高 */
-check('侧边栏保留 self-start（grid 子项不被拉伸）',
-  /\bself-start\b/.test(asideClass),
-  '去掉 self-start 后卡片会被拉伸到与左侧栏等高');
-
-/* L5 · CSS 规则三要素齐全（top + max-height + overflow-y）才算「固定」 */
-const asideRule = themeCssSrc.match(/aside\.aside-sticky\s*\{[\s\S]*?\}/);
-check('主题 CSS 有 aside.aside-sticky 规则',
-  !!asideRule, 'CSS banner 段缺少 aside.aside-sticky');
+/* L3 · CSS 规则：fixed 五要素 */
+const asideRule = themeCssSrc.match(/aside\.aside-fixed\s*\{[\s\S]*?\n  \}/);
+check('主题 CSS 有 aside.aside-fixed 规则',
+  !!asideRule, 'CSS banner 段缺少 aside.aside-fixed');
 const ruleBody = asideRule ? asideRule[0] : '';
-check('侧边栏规则含 position: sticky',
-  /position:\s*sticky/.test(ruleBody), ruleBody || '(规则未取到)');
-check('侧边栏规则含 max-height（限高，否则长内容会溢出视口）',
-  /max-height:\s*calc\(/.test(ruleBody), ruleBody || '(规则未取到)');
-check('侧边栏规则含 overflow-y: auto（超出由内部滚，不带动页面）',
-  /overflow-y:\s*auto/.test(ruleBody), ruleBody || '(规则未取到)');
+check('侧边栏规则含 position: fixed',
+  /position:\s*fixed/.test(ruleBody), ruleBody.slice(0, 120) || '(规则未取到)');
+check('侧边栏规则含 top（垂直固定位置）',
+  /top:\s*[\d.]+rem/.test(ruleBody), '缺少 top —— 垂直位置不定');
+check('侧边栏规则含 left（水平对齐 grid 列）',
+  /left:\s*calc\(/.test(ruleBody), '缺少 left —— fixed 后不再自动对齐列位置');
+check('侧边栏规则含 max-height（超高时兜底）',
+  /max-height:\s*calc\(/.test(ruleBody), '缺少 max-height');
+check('侧边栏规则含 overflow-y: auto（兜底内部滚动）',
+  /overflow-y:\s*auto/.test(ruleBody), '缺少 overflow-y');
+check('侧边栏规则含 z-index（低于 header、高于正文）',
+  /z-index:\s*\d+/.test(ruleBody), '缺少 z-index');
 
-/* L6 · 跨文件对齐：吸顶 top 必须 ≥ header 高度（当下沿之下才不被压） */
+/* L4 · top 必须把「原来由文档流提供的上边距」补回来
+   —— fixed 脱离文档流后，容器 py-10 的 padding-top 不再推它，必须显式加进 top。
+      期望 top = header 高度 + 容器 py-N + 呼吸间距(≥8px)
+
+   ⚠️ 必须锚定「主体布局容器」，不能用裸 py-(\d+) —— 页面里 py-1 / py-2 / py-0.5
+      一大堆（目录链接、按钮、分类胶囊…），裸正则会匹配到第一个（py-1）而静默取错值。
+      这里用容器独有的 class 组合锚定：flex-1 + flex-col + max-w-[Nrem] + py-N。 */
+const containerEl = themeEjsSrc.match(
+  /class="[^"]*\bflex-1\b[^"]*\bflex-col\b[^"]*\bmax-w-\\?\[\d+rem\\?\][^"]*\bpy-(\d+)\b/,
+);
+const containerPyRem = containerEl ? Number(containerEl[1]) * 0.25 : null;
+check('能从 EJS 读出主体布局容器的竖向内边距（py-N，锚定 flex-col + max-w-[Nrem]）',
+  containerPyRem !== null,
+  '未匹配到主体容器上的 py-* —— fixed 的 top 需要它来补位');
+
 const asideTopRem = ruleBody.match(/top:\s*([\d.]+)rem/);
 const asideTop = asideTopRem ? Number(asideTopRem[1]) : null;
 if (headerRem !== null && asideTop !== null) {
   const toPx = (rem) => Math.round(rem * 16);
-  check(`侧边栏吸顶不被 header 遮挡（top ${toPx(asideTop)}px ≥ header ${toPx(headerRem)}px）`,
+  const minTop = headerRem + (containerPyRem ?? 0);
+  check(`侧边栏顶部不被 header 遮挡（top ${toPx(asideTop)}px ≥ header ${toPx(headerRem)}px）`,
     asideTop >= headerRem,
     `top 比 header 矮 ${toPx(headerRem - asideTop)}px → 卡片上沿会被压住`);
-  check('侧边栏吸顶与 header 之间留有呼吸间距（≥ 8px）',
-    (asideTop - headerRem) * 16 >= 8,
-    `间距仅 ${toPx(asideTop - headerRem)}px，卡片会紧贴导航栏`);
-} else {
-  check('能从 CSS 里读出侧边栏吸顶 top 值', false,
-    `headerRem=${headerRem}, asideTop=${asideTop}`);
+  check(`fixed 的 top 已补回容器 py-N（top ${toPx(asideTop)}px ≥ header+py ${toPx(minTop)}px）`,
+    asideTop >= minTop,
+    `fixed 脱离文档流后丢掉了容器的 padding-top（${containerPyRem}rem），`
+    + `top 应 ≥ ${minTop}rem（header ${headerRem}rem + py ${containerPyRem}rem），`
+    + `实际 ${asideTop}rem → 会比原来偏上 ${toPx(minTop - asideTop)}px`);
+  check('侧边栏与上方元素之间留有呼吸间距（≥ 8px）',
+    (asideTop - minTop) * 16 >= 8,
+    `间距仅 ${toPx(asideTop - minTop)}px，卡片会紧贴上方元素`);
 }
 
-/* L7 · max-height 必须与 top 同源（都用 100vh 与同一个 top 值），否则限高会算错 */
-if (ruleBody) {
-  const mh = ruleBody.match(/max-height:\s*calc\(100vh\s*-\s*([\d.]+)rem/);
-  check('max-height 以 100vh 减去吸顶 top 推导（限高与吸顶同坐标系）',
-    !!mh && asideTop !== null && Number(mh[1]) === asideTop,
-    `max-height 里的减数=${mh ? mh[1] : '(未取到)'}rem，top=${asideTop}rem —— 两者应一致`);
-}
+/* L4b · max-height 的减数必须与 top 同值（同坐标系，防只改一处） */
+const mhRem = ruleBody.match(/max-height:\s*calc\(100vh\s*-\s*([\d.]+)rem/);
+check('max-height 的减数与 top 一致（限高与定位同坐标系）',
+  !!mhRem && asideTop !== null && Number(mhRem[1]) === asideTop,
+  `max-height 减数=${mhRem ? mhRem[1] : '(未取到)'}rem，top=${asideTop}rem —— 两者应一致`);
 
-/* L8 · 渲染结果与源码一致 */
-check('渲染结果里 aside 带 aside-sticky 类',
-  /<aside[^>]*class="[^"]*\baside-sticky\b/.test(home.body),
-  '服务端渲染出的 aside 没有 aside-sticky');
+/* L5 · left 公式里的常量必须与 EJS 一致（防「改了容器宽度忘了改公式」）
+   ⚠️ 只取 `left:` 那条声明来校验 —— 规则体里还有注释提到 100rem，
+      如果对整个 ruleBody 做正则，注释会误伤（曾因此漏掉一次真实回归）。 */
+const leftDecl = ruleBody.match(/\bleft:\s*([^;]+);/);
+const leftBody = leftDecl ? leftDecl[1] : '';
+check('能从 CSS 里提取 left 声明（只取声明本身，避开注释）',
+  leftBody.length > 0, '未匹配到 left: ...; 声明');
+
+if (containerRem !== null) {
+  check(`left 公式引用了容器的 max-width（${containerRem}rem）`,
+    new RegExp(`100vw\\s*-\\s*${containerRem}rem`).test(leftBody),
+    `left 声明里没找到 "100vw - ${containerRem}rem" —— 容器宽度改了但 left 公式没同步。实际：${leftBody}`);
+}
+if (asideW !== null) {
+  check(`left 公式引用了侧边栏宽度（${asideW}px，作为减数）`,
+    new RegExp(`-\\s*${asideW}px`).test(leftBody),
+    `left 声明里没找到 "- ${asideW}px" —— 侧边栏宽度改了但 left 公式没同步。实际：${leftBody}`);
+}
+check('left 公式用 min() 处理容器未满宽（否则窄屏会算错）',
+  /min\(\s*100vw/.test(ruleBody),
+  '缺少 min(100vw, ...) —— 容器窄于 max-width 时内容宽应为 100vw');
+check('left 公式用 max() 处理容器居中（否则宽屏会偏左）',
+  /max\(\s*0px/.test(ruleBody),
+  '缺少 max(0px, ...) —— 宽屏时容器居中偏移会被算成负数');
+
+/* L6 · 内边距分段必须与 EJS 的 sm:px-8 / xl:px-10 对应 */
+const hasSmPad = /--aside-pad:\s*2rem/.test(themeCssSrc);     /* px-8 = 2rem */
+const hasXlPad = /--aside-pad:\s*2\.5rem/.test(themeCssSrc);  /* px-10 = 2.5rem */
+check('内边距分段与 EJS 的 sm:px-8 对应（2rem）',
+  hasSmPad || !/sm\\:px-8/.test(themeEjsSrc),
+  'EJS 用 sm:px-8（2rem），但 CSS 里没有 --aside-pad: 2rem');
+check('内边距分段与 EJS 的 xl:px-10 对应（2.5rem）',
+  hasXlPad || !/xl\\:px-10/.test(themeEjsSrc),
+  'EJS 用 xl:px-10（2.5rem），但 CSS 里没有 --aside-pad: 2.5rem');
+
+/* L7 · 渲染结果与源码一致 */
+check('渲染结果里 aside 带 aside-fixed 类',
+  /<aside[^>]*class="[^"]*\baside-fixed\b/.test(home.body),
+  '服务端渲染出的 aside 没有 aside-fixed');
+check('渲染结果里 aside 不再带 self-start / sticky',
+  !/<aside[^>]*class="[^"]*\bself-start\b/.test(home.body) &&
+  !/<aside[^>]*class="[^"]*\bsticky\b/.test(home.body),
+  '服务端渲染出的 aside 仍带 self-start 或 sticky');
 
 /* ------------------------------------------------------------------ */
 
