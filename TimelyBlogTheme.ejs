@@ -55,21 +55,6 @@ var blogger = {
 var isFixed = isFixedPage(note);
 var isPostPage = (note.noteId !== subRoot.note.noteId && note.getLabelValue('publish') === 'true') || isFixed;
 
-// ---- 资源兜底 ----
-// CDN 加载失败时回退到 Trilium 自己托管的同一份 code 笔记：
-// 在分享根笔记（或模板笔记）上加 ~shareCss / ~shareJs 关系指向 CSS / JS 笔记即生效，
-// 没加则不会输出 onerror 属性，主流程完全不受影响。URL 格式对齐官方默认主题。
-function firstAssetUrl(relList) {
-  return (relList && relList.length) ? 'api/notes/' + relList[0].value + '/download' : '';
-}
-function assetFallback(kind) {
-  var fromNote = note.getRelations('share' + kind);
-  if (fromNote.length) return firstAssetUrl(fromNote);
-  return firstAssetUrl(subRoot.note.getRelations('share' + kind));
-}
-var cssFallback = assetFallback('Css');
-var jsFallback = assetFallback('Js');
-
 var postDetail = null;
 if (isPostPage) {
   var pd = note.getLabelValue('blogDate');
@@ -110,8 +95,8 @@ window.BLOG_DATA = {
   <link rel="preconnect" href="https://www.unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://www.unpkg.com/font-online@1.3.2/css/alibaba-pu-hui-ti-3.online.css">
 
-  <!-- 主题样式：CDN 为主，~shareCss 关系存在时附带加载失败回退 -->
-  <link href="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.css" rel="stylesheet"<% if (cssFallback) { %> onerror="this.onerror=null;this.href='<%= cssFallback %>'"<% } %>>
+  <!-- 主题样式：稳定后由人工发布到 GitHub 并用 CDN 引入 -->
+  <link href="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.css" rel="stylesheet">
   <!-- Vue 3 运行时 + 编译器（支持模板字符串编译） -->
   <script src="https://cdn.jsdmirror.com/npm/vue@3.5.13/dist/vue.global.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/jetbrains-mono@1.0.6/css/jetbrains-mono.min.css">
@@ -550,6 +535,6 @@ window.BLOG_DATA = {
 
   <template id="tpl-app-root"><div class="flex flex-col min-h-screen"><div id="reading-progress" class="fixed top-0 left-0 h-0.5 bg-gradient-to-r from-amber-600 to-amber-400 dark:from-amber-500 dark:to-yellow-400 z-[9999] transition-all" :style="{ width: progress + '%' }"></div><app-header @toggle-search="G.searchOpen.value = true"></app-header><div class="flex-1 flex flex-col max-w-[100rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14"><div class="flex-1 grid lg:grid-cols-[1fr_270px] lg:items-start gap-10 xl:gap-12"><main id="main-scroll" class="min-w-0" ref="mainEl"></main><app-sidebar></app-sidebar></div></div><div class="mt-auto"><app-footer class="py-4"></app-footer></div><search-modal></search-modal><back-to-top></back-to-top><lightbox></lightbox></div></template>
 
-<script src="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.js"<% if (jsFallback) { %> onerror="(function(){var s=document.createElement('script');s.src='<%= jsFallback %>';document.head.appendChild(s);})()"<% } %>></script>
+<script src="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.js"></script>
 </body>
 </html>

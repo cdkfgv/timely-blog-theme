@@ -43,15 +43,17 @@
 > 目标：EJS 只留数据 + 结构。
 > **托管方案已定（用户决策）：继续用 GitHub CDN，不迁 `~shareCss`/`~shareJs`。**
 > 理由：域名已映射到 `/share`，本身免登录可访问；把 CSS/JS 推到 GitHub 走 CDN，一是**边缘缓存加速**（尤其封面流量、NAS 上行带宽有限），二是**博客内容就该公开分享**。此处不再讨论内迁，只做 CDN 路线下的优化。
+> **发布流程（人工）**：本地开发期一律看 `/share/theme/*` 本地文件（源码写死 CDN 地址，share-tool 渲染时自动替换）→ 确认无误后手动把 CSS/JS 推到 GitHub → CDN 生效。代码里不做任何自动回退或环境判断。
 
 - [x] ~~2.2 资源改 `~shareCss` / `~shareJs`~~ — **撤销，不做**（见上方决策）
 - [x] **2.1 手写样式出 EJS → CSS 末尾** — 113 行内联 `<style>`（`::selection`、滚动条、`.code-block`、`.prose-content` 全段、`.toc-drawer`、`prefers-reduced-motion`）迁到 `TimelyBlogTheme.css` 末尾，带醒目 banner 标注「非 Tailwind 产物，重构建后需贴回」。EJS 47,497 → 38,357 字节（**每页少下发 9.1KB**），渲染结果里已无 `<style>`
   - 用户决策：单文件（不拆第二个 CSS），接受重构建需贴回的人工成本
 - [x] **2.2a 缓存策略** — 用户决策：**保持 `@main`**，不加版本 tag/SHA（避免每次发布多一步改 EJS）；若日后出现明显缓存滞后再切 tag
-- [x] **2.2b CDN 兜底** — EJS 读 `~shareCss` / `~shareJs` 关系生成 `onerror` 回退（对齐官方默认主题的 `api/notes/<id>/download` 写法）：
-  - CSS：`onerror="this.onerror=null;this.href='api/notes/<id>/download'"`
-  - JS：`onerror` 动态注入 `<script>`（因此把主题 JS 的启动从 `DOMContentLoaded` 改成 `readyState` 判断，异步注入也能初始化）
-  - 未配置关系时自动省略该属性，主流程零影响；**需要在 Trilium 分享根笔记上加这两条关系才生效**
+- [x] ~~**2.2b CDN 兜底（onerror 自动回退）**~~ — **撤销，不做**（用户决策）
+  - 理由：CSS/JS 上传 GitHub、切 CDN 是**人工发布步骤**，代码里不写任何自动判断/回退
+  - 已移除：EJS 里的 `cssFallback`/`jsFallback`（读 `~shareCss`/`~shareJs` 生成 `onerror`）、CSS `onerror` 属性、JS `onerror` 动态注入；只留 `<link>` / `<script>` 的纯 CDN 引用
+  - 保留：`~shareCss`/`~shareJs` 关系由用户在 Trilium 侧自行维护（主题不读）
+  - 备注：主题 JS 启动仍用 `readyState` 判断（同步/异步加载都能初始化，与回退无关）
 - [x] **2.2c 预连接** — 三个源都加了 `<link rel="preconnect" crossorigin>`（jsdmirror / cdnjs / unpkg）
 - [ ] **2.3 依赖收敛** — 用户决策：图标换**内联 SVG**（需先确认线框稿）
   - [x] 线框稿：`mockups/icons-mockup.html`（24 个图标逐一对照，左列真实 FontAwesome，含明暗切换、34px 放大对比、场景预演）→ **待你确认**

@@ -668,7 +668,7 @@ function boot() {
   app.mount('#app');
 }
 
-// CDN 失败时会异步注入兜底脚本，所以不能只依赖 DOMContentLoaded
+// 同步/异步加载都能初始化（脚本位置或注入方式变化时也不用改这里）
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', boot);
 } else {
