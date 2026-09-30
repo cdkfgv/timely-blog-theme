@@ -19,7 +19,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { config } from '../config.js';
+import { config, themePath } from '../config.js';
 
 const BASE = (process.env.BASE || `http://localhost:${config.port}`).replace(/\/+$/, '');
 const PREFIX = config.shareUrlPrefix;
@@ -356,6 +356,119 @@ if (!config.mock) {
     check(`SSR 保留 Trilium 原始 class：language-${raw}`,
       p7.body.includes(`language-${raw}`), '模板不应改写正文里的 class');
   });
+}
+
+/* ------------------------------------------------------------------
+   K 段 · 笔记图标（#iconClass → 首页卡片 / 详情页标题）
+   ------------------------------------------------------------------
+   背景：Trilium 的分享页默认只在左侧树渲染 note.getIcon()；
+   主题把它搬到首页卡片与详情页 <h1> 上，做到「Trilium 里设一次，网页跟着显示」。
+   数据源是笔记的 #iconClass（Boxicons，如 "bx bxs-shower"）。
+   ------------------------------------------------------------------ */
+
+/**
+ * 从主题 EJS 里切片取出图标放行判定，复刻成可调用函数。
+ * 回归价值：曾把判定写成 `part.indexOf(p + '-') === 0`，
+ * 基础类 "bx" 本身不匹配 → 整串被丢弃 → 页面上一个图标都没有。
+ *
+ * isKnownIconClass 在 EJS 里闭包引用了模块级的 iconPrefixes，
+ * 切片求值时该变量不存在 → 这里显式把它作为第二个参数注入。
+ */
+function iconCloneTest() {
+  let src = '';
+  try {
+    src = fs.readFileSync(themePath(config.ejsFile), 'utf8');
+  } catch {
+    return null;
+  }
+  const start = src.indexOf('function isKnownIconClass');
+  const end = src.indexOf('function noteIcon');
+  if (start < 0 || end < 0 || end <= start) return null;
+  const snippet = src.slice(start, end);
+  try {
+    // 包一层：把 iconPrefixes 定义为形参，调用时传入
+    const fn = new Function(
+      `return function(iconPrefixes){ ${snippet}\nreturn isKnownIconClass; }`,
+    )();
+    return (cls, prefixes) => fn(prefixes)(cls);
+  } catch {
+    return null;
+  }
+}
+
+/* K1 · iconPackCss 的注入出口（两处：<head> 的 style 标签 + 字体来源）*/
+check('页面注入了 iconPackCss（#trilium-icon-packs）',
+  home.body.includes('id="trilium-icon-packs"'),
+  '缺少该 style 标签 → 图标字体不会加载');
+
+/* 字体 URL：local 模式应被重写成本地主题文件；as-is 保持 Trilium 的 assets/fonts 路径 */
+if (config.assetMode === 'as-is') {
+  check('as-is：字体保持 Trilium 原始路径 assets/fonts/boxicons.woff2',
+    /assets\/fonts\/boxicons\.woff2/.test(home.body),
+    'as-is 模式不应改写资源地址');
+} else {
+  check('local：boxicons 字体被重写为 /share/theme/boxicons.woff2',
+    home.body.includes(`${PREFIX}/theme/boxicons.woff2`),
+    '本地渲染时字体需指向主题仓库内的字体文件');
+}
+
+/* K2 · 首页卡片图标渲染 */
+const cardIcons = [...home.body.matchAll(
+  /<i class="([^"]+) post-icon" aria-hidden="true"><\/i><a[^>]*>([^<]{0,60})/g,
+)].map((m) => ({ cls: m[1], title: m[2] }));
+
+check('首页卡片渲染了笔记图标', cardIcons.length > 0, '一个都没有 → noteIcon() 可能被过滤空了');
+check('卡片图标都带 bx 前缀（已在加载的图标包）',
+  cardIcons.every((i) => /(^|\s)bx/.test(i.cls)),
+  cardIcons.map((i) => i.cls).join(' / '));
+
+/* 图标必须出现在标题链接之前（A 方案：内联在标题左侧） */
+check('图标内联在标题左侧（<i> 紧邻 <a> 之前）',
+  /<i class="[^"]+ post-icon"[^>]*><\/i><a href="\.\//.test(home.body),
+  'A 方案要求图标与标题同行且在前');
+
+/* K3 · 详情页标题图标（用 mock 里确实设了 iconClass 的文章） */
+if (config.mock) {
+  const withIcon = await get(`${BASE}${PREFIX}/post0000001`);
+  check('详情页标题带图标（post0000001 设了 #iconClass）',
+    withIcon.body.includes('bxs-shower') && /<i class="bx bxs-shower post-icon"/.test(withIcon.body),
+    '详情页 <h1> 未渲染图标');
+
+  /* 未设 #iconClass 的笔记 → getIcon() 按类型兜底，不应渲染成空 */
+  const noIcon = await get(`${BASE}${PREFIX}/post0000002`);
+  const h1 = (noIcon.body.match(/<h1 class="text-2xl md:text-3xl[\s\S]{0,200}?<\/h1>/) || [])[0] || '';
+  check('未设图标的笔记回退为类型默认图标（bx bx-note）',
+    h1.includes('bx bx-note post-icon'),
+    `实际：${h1.slice(0, 120) || '(未取到 h1)'}`);
+
+  /* mock 专属：确认两种 Boxicons 变体（regular / solid）都能透出 */
+  const bxs = cardIcons.filter((i) => /\bbxs-/.test(i.cls));
+  check('solid 变体（bxs-*）能正常渲染', bxs.length > 0,
+    cardIcons.map((i) => i.cls).join(' / '));
+} else {
+  /* 真实库：不假设具体文章设了图标，只验证「有 #iconClass 就一定渲染出来」的对照关系 */
+  const anyCardIcon = cardIcons.length;
+  check('真实库首页存在文章图标或回退图标', anyCardIcon > 0,
+    '一篇都没有 → 检查 getIcon() / iconPackSupportedPrefixes 是否可用');
+  console.log(`  k 首页图标分布：${cardIcons.map((i) => i.cls).join(', ') || '(无)'}`);
+}
+
+/* K4 · 图标 class 的放行判定（回归：曾写成 indexOf(p + '-') === 0 导致 bx 被判否）*/
+const iconClone = iconCloneTest();
+if (iconClone) {
+  const cases = [
+    ['bx bxs-shower', ['bx'], true],
+    ['bx bx-note', ['bx'], true],
+    ['bx', ['bx'], true],
+    ['fa-solid fa-tag', ['bx'], false],
+    ['', ['bx'], false],
+  ];
+  cases.forEach(([cls, prefixes, want]) => {
+    const got = iconClone(cls, prefixes);
+    check(`图标放行判定：${cls || '(空)'} → ${want ? '通过' : '拦截'}`, got === want, `实际 ${got}`);
+  });
+} else {
+  check('能从主题 EJS 中提取图标放行判定做验证', false, '切片失败，检查 isKnownIconClass 是否被改名');
 }
 
 /* ------------------------------------------------------------------ */

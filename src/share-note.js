@@ -52,6 +52,34 @@ export class ShareNote {
     return String(this.title).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  /**
+   * 对齐 Trilium v0.105.0 的 SNote.getIcon(filterByPrefix)：
+   *   读 #iconClass label（可被 filterByPrefix 过滤）→ 交给 getNoteIcon() 兜底类型默认。
+   * 线上返回 `tn-icon <class>`；本地没有 tn-icon 那套样式，故只返回裸图标 class，
+   * 由主题自己拼 <i class="...">。既有的 `#iconClass`（如 "bx bxs-shower"）原样透出。
+   */
+  getIcon(filterByPrefix = []) {
+    const iconClassLabels = this.getLabelValues('iconClass').filter((value) => {
+      if (filterByPrefix.length === 0) return true;
+      return filterByPrefix.some((prefix) => value.startsWith(prefix));
+    });
+    return iconClassLabels.length > 0 ? iconClassLabels[0] : this._defaultIcon();
+  }
+
+  /** 对齐 getNoteIcon()：未设 #iconClass 时的类型回退（内置图标包 prefix = bx） */
+  _defaultIcon() {
+    if (this.hasLabel('shareRoot')) return 'bx bx-home-alt-2';
+    if (this.noteId === '_share') return 'bx bx-share-alt';
+    if (this.type === 'text') return this.hasChildren() ? 'bx bx-folder' : 'bx bx-note';
+    if (this.type === 'code' && /^text\/x-sql/.test(this.mime)) return 'bx bx-data';
+    if (this.type === 'code') return 'bx bx-code-curly';
+    if (this.type === 'book') return 'bx bx-book';
+    if (this.type === 'image') return 'bx bx-image';
+    if (this.type === 'canvas') return 'bx bx-pen';
+    if (this.type === 'file') return 'bx bx-file';
+    return 'bx bx-note';
+  }
+
   /* ---------------- 标签 / 关系 ---------------- */
 
   getLabelValue(name) {

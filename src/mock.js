@@ -110,6 +110,8 @@ post(
     ['blogTags', 'Trilium'],
     ['blogTags', 'Node.js'],
     ['blogSummary', '把主题开发从「复制到 Trilium 看效果」变成「本地刷新」…'],
+    // 笔记图标：Trilium「设置图标」写入的 #iconClass（Boxicons，前缀 bx）
+    ['iconClass', 'bx bxs-shower'],
     // OG 元信息：label 形态（值原样输出）
     ['shareOpenGraphURL', 'https://blog.example.com/etapi-local-dev'],
     ['shareOpenGraphImage', 'https://cdn.example.com/og/etapi-local-dev.png'],
@@ -185,10 +187,12 @@ post(
     ['blogCategory', '基础设施'],
     ['blogTags', 'Docker'],
     ['blogSummary', '飞牛 NAS + Cloudflare Tunnel 的日常。'],
-    // og:image 兜底：没有 OG 相关属性时用文章封面（相对路径 + #siteUrl 拼成绝对地址）
+    // OG 元信息兜底：没有 OG 相关属性时用文章封面（相对路径 + #siteUrl 拼成绝对地址）
     ['headerImage', 'api/attachments/att000000001/image/pic.png'],
     // 回归用例：已共享 + 已发布但「隐藏于分享树导航」的文章，仍必须出现在首页列表里
     ['shareHiddenFromTree', ''],
+    // 图标：solid 变体（bx s 前缀）—— 与 post0000001 的 bxs- 形态形成对照
+    ['iconClass', 'bx bxs-coffee-bean'],
   ],
   '<h2>拓扑</h2><p>NAS 跑 Docker，ECS 跑 frps / DERP。</p>',
 );

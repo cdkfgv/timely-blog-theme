@@ -61,6 +61,16 @@ export const config = {
       pattern: 'https?://cdn\\.jsdmirror\\.com/gh/[^/"\'`]+/timely-theme@[^/"\'`]+/Timely-Theme/([\\w.-]+)',
       map: {},
     },
+    {
+      /**
+       * 图标包字体（Boxicons）本地化。
+       * 线上 Trilium 的 iconPackCss 里写的是 assets/fonts/boxicons.woff2
+       * （相对 /share/），本地渲染时该路径不存在 → 重写成本地字体文件。
+       * 字体文件放在主题仓库根目录，由 /share/theme/* 静态服务。
+       */
+      pattern: 'assets/fonts/(boxicons\\.woff2)',
+      map: { 'boxicons.woff2': 'boxicons.woff2' },
+    },
   ],
 
   /**

@@ -20,10 +20,11 @@ const t = (key, opts) => {
 function buildLocals({ store, note }) {
   const root = store.root;
   return {
-    // —— Trilium 自定义分享模板的真实 locals（对齐 share/routes.ts 的 opts）——
-    // 只有这些：note / header / content / isEmpty / subRoot / assetPath /
-    // assetUrlFragment / appPath / showLoginInShareTheme / t / isDev
-    // 注意：没有 utils、没有 cssToLoad / jsToLoad —— 模板不可依赖它们。
+    // —— Trilium 自定义分享模板的真实 locals（对齐 share/content_renderer.ts 的 opts）——
+    // 基线：note / header / content / isEmpty / subRoot / assetPath / assetUrlFragment /
+    //       showLoginInShareTheme / t / isDev / utils / sanitizeUrl
+    // + renderArgs（v0.105.0）：cssToLoad / jsToLoad / logoUrl / ancestors / isStatic /
+    //       faviconUrl / iconPackCss / iconPackSupportedPrefixes
     note,
     content: null, // 由 renderSharePage 注入（已改写链接）
     header: '',
@@ -35,6 +36,11 @@ function buildLocals({ store, note }) {
     showLoginInShareTheme: false,
     t,
     isDev: true,
+    // 图标包：Trilium 已把 iconPackCss 算好塞进模板上下文。
+    // 线上内置包为 Boxicons v2（prefix bx），字体走 /share/assets/fonts/boxicons.woff2。
+    // 本地渲染时由 localizeAssets 把该地址重写成 /share/theme/boxicons.woff2（主题仓库内）。
+    iconPackCss: ICON_PACK_CSS,
+    iconPackSupportedPrefixes: ['bx'],
     // —— 本项目扩展（前缀 __ 避免与 Trilium locals 混淆）——
     __dev: {
       rootNoteId: root?.noteId,
@@ -43,6 +49,31 @@ function buildLocals({ store, note }) {
     },
   };
 }
+
+/**
+ * 内置图标包（Boxicons v2）的 @font-face + .bx 基础规则。
+ * 线上这份 CSS 由 Trilium 服务端生成（icon_packs.generateCss），
+ * 本地只需基础规则即可让 <i class="bx bxs-shower"> 正常显示 ——
+ * 单个图标 glyph 由 boxicons.min.css 提供（见 mockups 与主题 CSS 引入的字体样式）。
+ */
+const ICON_PACK_CSS = `@font-face {
+  font-family: 'boxicons';
+  font-weight: normal;
+  font-style: normal;
+  src: url('assets/fonts/boxicons.woff2') format('woff2');
+}
+.bx {
+  font-family: 'boxicons' !important;
+  font-weight: normal;
+  font-style: normal;
+  font-variant: normal;
+  line-height: 1;
+  display: inline-block;
+  text-rendering: auto;
+  text-transform: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}`;
 
 /**
  * canvas（Excalidraw）笔记在分享页里不是下发场景 JSON，而是渲染成一张图片。
