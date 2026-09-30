@@ -673,3 +673,77 @@ header 内层、主体容器、详情页内层、页脚内层。
 | `unit` / `script-test` | **5** / **24** | — | — |
 
 三处顶边全部对齐到 96px：列表页正文 96 / 详情页正文 96 / 侧栏 96。
+
+---
+
+## 阶段 10：重建 Tailwind v4 构建链路（流程性变更）
+
+### 10.1 问题
+
+用户提问：「css 不是 tailwindcss 编译后的产物么，我不应该只改 ejs 么，然后编译 css 么？」
+
+核对后发现：`TimelyBlogTheme.css` 头部标着 `tailwindcss v4.2.2`，但仓库里
+**没有任何构建配置**（无 `package.json` / `tailwind.config` / `input.css` / 依赖）——
+它是一次性产出后**手工维护**的产物。git 历史印证：每次改动都是直接手写 CSS 行。
+
+**由此产生的真实故障**：容器宽度改成 98rem 后，
+`left: calc(... (100vw - 95rem) ...)` 这处**漏改**（仍是 95rem），
+而旧 smoke 断言读的是 EJS 与 `--aside-inner` 的 98rem —— **完全检测不到这行**。
+
+### 10.2 方案
+
+重建构建链路 + 布局值变量化。
+
+**新增文件**：
+- `package.json`：`npm run build`（`tailwindcss -i ./src/input.css -o ./TimelyBlogTheme.css --minify`）、`npm run dev`（watch）
+- `src/input.css`：唯一手写源 = `@import "tailwindcss"` + `@source`（EJS/JS/HTML）+ `@theme` + 手写样式段
+
+**产物**：80KB → 52KB；任意值类（`max-w-[98rem]` 等）自动生成。
+
+### 10.3 布局联动值变量化
+
+```css
+:root {
+  --layout-container: 98rem;   /* 容器总宽 */
+  --layout-aside: 270px;       /* 侧栏宽 */
+  --layout-top: 6rem;          /* 侧栏顶边 */
+}
+```
+
+`left` 与 `max-height` 改为引用变量 → **改一处全联动**。
+实测：只改 `--layout-container: 88rem`，`left` 公式自动跟随。
+
+**EJS 侧仍有镜像值**（`max-w-[Nrem]` ×4、`w-[270px]` ×2）需同步 —— smoke 新增 L5b 守卫比对。
+
+### 10.4 迁移踩坑
+
+| # | 坑 | 修法 |
+|---|---|---|
+| 1 | `@theme` 变量提取漏行 → `--color-accent` 没进 `@theme` → EJS 的 `dark:bg-accent` 等类**整体不生成**（静默丢失） | 补进 `@theme` |
+| 2 | minify 后 CSS 单行，旧正则 `\{[\s\S]*?\n  \}` 失配 | 改**花括号配对**提取规则体 |
+| 3 | 旧产物有大量「源码已无」的僵尸类（`h-20`/`animate-pulse`/`w-3/4`…） | 重建后自动清理 |
+| 4 | 选择器集合 diff 对 minified CSS 解析不准，误报「类丢失」 | 判定是否真丢失：**在源码里 `count()` 该 class** |
+
+### 10.5 smoke 断言改造（L3~L5b 变量感知）
+
+- 新增：`:root` 必须定义 `--layout-top` / `--layout-container` / `--layout-aside`
+- `top` 必须引用 `var(--layout-top)`；`max-height` 必须以 `var(--layout-top)` 作减数
+- `left` 必须引用 `var(--layout-container)` / `var(--layout-aside)`
+- 新增 L5b：**变量值 === EJS class 读出的值**（一致性锚点）
+
+### 10.6 测试
+
+| 套件 | mock·local | mock·as-is | 真实库 |
+|---|---|---|---|
+| `smoke` | **134** | **133** | **108**（`POST_ID=HvzRWi2r9bUh`）|
+| `dom` | **63** | — | — |
+| `unit` / `script-test` | **5** / **24** | — | — |
+
+### 10.7 新工作流（取代旧「改 EJS + 手写 CSS」）
+
+1. 改样式 → 改 `src/input.css`（或 EJS 的 class）
+2. `npm run build`
+3. 存盘即生效，浏览器直接看
+4. 跑 smoke 核对联动值
+
+⚠️ **`TimelyBlogTheme.css` 是产物，不要再直接编辑**。
