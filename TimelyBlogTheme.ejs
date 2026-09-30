@@ -580,13 +580,17 @@ var year = new Date().getFullYear();
         </main>
 
         <!-- ==================== 侧边栏 ==================== -->
-        <% /* 右侧卡片刻意**不做 sticky**：内容本来就不长（头像卡 + 可能的目录），
-              跟着滚一小段再吸顶意义不大，反而让人以为页面卡住了。
-              改为随文档流静态摆放 —— 页面滚上去它就走，符合「右侧不动」的直觉。
-              self-start 仍要保留：父级是 grid，不加它卡片会被拉伸到与左侧等高。
-              （历史：曾是 sticky top-[2.5rem]，吸顶 40px 被 header 压住 16px 而修成 4.5rem，
-                现在直接去掉 sticky，那个遮挡问题自然不存在了。） */ %>
-        <aside class="hidden lg:block self-start w-[270px] shrink-0 space-y-4">
+        <% /* 右侧卡片**固定在视口内**：sticky 吸顶 + 限高 + 内部滚动。
+              用户原话「右侧固定，不再滚动了」—— 滚左侧正文时右侧一直在原位，
+              右侧内容超出可用高度时由它自己内部滚，不带动整个页面。
+              ⚠️ top 必须 ≥ header 高度（h-14 = 3.5rem / 56px），否则吸顶后被导航压住；
+                 取 4.5rem（56px + 16px 呼吸间距）。
+              ⚠️ max-height 与 top 必须成对：高度上限 = 视口高 − 吸顶位置 − 底部留白，
+                 这样「限高」和「吸顶」才在一个坐标系里，不会算出负数或溢出。
+              ⚠️ 这三个值（top / max-height / 溢出滚动）在 TimelyBlogTheme.css 末尾
+                 banner 段的 aside.sticky 里手写 —— tailwind 产物没有这些任意值类。
+              self-start 仍要保留：父级是 grid，不加它卡片会被拉伸到与左侧等高。 */ %>
+        <aside class="hidden lg:block self-start w-[270px] shrink-0 space-y-4 aside-sticky">
           <div class="p-5 rounded-xl bg-white dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/50">
             <div class="flex items-start gap-3 mb-4">
               <img src="<%- esc(avatarUrl) %>" class="w-14 h-14 rounded-full border-2 border-stone-200 dark:border-zinc-700 shrink-0" alt="avatar">

@@ -2229,16 +2229,48 @@ pre:has(> code.hljs) { margin: 0; padding: 1.125rem; border-radius: 0 0 0.75rem 
 article h1 .post-icon { font-size: 1em; }
 
 /* ==========================================================================
- * 侧边栏布局（已取消 sticky）
+ * 侧边栏：固定在视口内（吸顶 + 限高 + 内部滚动）
  * --------------------------------------------------------------------------
- * 现状：右侧卡片**不吸顶**，随文档流静态摆放 —— 内容不长（头像卡 + 可能的目录），
- * 跟滚一小段再吸顶反而像页面卡住，所以直接去掉 sticky（见 EJS 里 aside 的注释）。
+ * 需求（用户）：右侧**固定不动**，滚左侧正文时它一直在原位。
+ * 做法：sticky 吸顶 + max-height 限高 + overflow-y 内部滚动 ——
+ *      右侧内容超出可用高度时由它自己滚，不带着整个页面走。
  *
- * ⚠️ 上一版这里有一条桌面断点下的吸顶规则（选择器是「侧边栏 + sticky 类」），
- * 用于修「吸顶 40px 被 header 56px 压住 16px」的 BUG。既然元素不再 sticky，
- * 那条规则已无意义，**连同 z-index 一起删除** —— 静态元素不需要层级，
- * 让它自然参与文档流即可（留一条死规则只会误导后来人）。
+ * ⚠️ 三条规则都必须手写：`.sticky` 虽在 Tailwind 产物里，但
+ *   `top: 4.5rem` / `max-height: calc(...)` 这些任意值产物里没有；
+ *   `aside-sticky` 是本项目自定义类名（刻意不叫 `sticky`，避免与 Tailwind
+ *   工具类同名而互相干扰/被误认）。
  *
- * 保留说明：若将来右侧内容变长又要吸顶，top 必须 ≥ header 高度（h-14 = 3.5rem / 56px），
- * 建议 4.5rem（56px + 16px 间距），并同步恢复 z-index。smoke L 段会校验这一点。
+ * ⚠️ top 与 max-height 必须成对推导：
+ *      top        = 4.5rem = header(3.5rem / 56px) + 16px 呼吸间距
+ *      max-height = 100vh − top − 底部留白(1.5rem)
+ *   这样「限高」和「吸顶」在同一坐标系里；改 header 高度时两者一起改。
+ *   smoke L 段会校验 top ≥ header 高度、以及 max-height 用了 100vh 与 4.5rem。
+ *
+ * 说明：只在 lg 断点生效（aside 本身是 hidden lg:block，移动端不参与布局）。
  * ========================================================================== */
+@media (min-width: 1024px) {
+  aside.aside-sticky {
+    position: sticky;
+    top: 4.5rem;                                /* = header 3.5rem + 1rem 间距 */
+    max-height: calc(100vh - 4.5rem - 1.5rem);  /* 视口高 − 吸顶位 − 底部留白 */
+    overflow-y: auto;
+  }
+
+  /* 滚动条：默认细一点、别抢视觉（Firefox + WebKit 两套写法） */
+  aside.aside-sticky {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-stone-300, #d6d3d1) transparent;
+  }
+  .dark aside.aside-sticky {
+    scrollbar-color: var(--color-zinc-700, #3f3f46) transparent;
+  }
+  aside.aside-sticky::-webkit-scrollbar { width: 6px; }
+  aside.aside-sticky::-webkit-scrollbar-track { background: transparent; }
+  aside.aside-sticky::-webkit-scrollbar-thumb {
+    background-color: var(--color-stone-300, #d6d3d1);
+    border-radius: 3px;
+  }
+  .dark aside.aside-sticky::-webkit-scrollbar-thumb {
+    background-color: var(--color-zinc-700, #3f3f46);
+  }
+}
