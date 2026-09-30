@@ -104,6 +104,20 @@ npm run push                   # 满意后推回 Trilium 的 EJS/CSS/JS 三个 c
 
 `npm run push` 需要先填 `PUSH_NOTE_EJS / PUSH_NOTE_CSS / PUSH_NOTE_JS`（Trilium 里对应笔记的 noteId）。
 
+### 改完主题跑这组检查
+
+```bash
+npm run smoke          # 服务端渲染结果断言（默认打 4321；BASE=... 可换端口）
+npm run dom            # jsdom 里真实执行主题 JS，验交互行为
+npm run script-test    # templateScript.js（Trilium 属性变更脚本）行为测试
+```
+
+- `smoke` / `dom` 走的是**正在运行的实例**，两种资源模式各跑一遍：
+  `ETAPI_MOCK=1 BASE=http://localhost:4323 npm run smoke`（local）、
+  `ASSET_MODE=as-is ETAPI_MOCK=1 BASE=http://localhost:4324 npm run smoke`（as-is）。
+  mock 专属断言受 `ETAPI_MOCK` 控制，真实库跑时会自动跳过。
+- `script-test` 用 `new Function('api', src)` + 打桩 note 复刻 Trilium 的 Script 环境，不需要起服务。
+
 ---
 
 ## 与线上行为的已知差异

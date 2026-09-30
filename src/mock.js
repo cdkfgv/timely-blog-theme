@@ -35,19 +35,33 @@ addNote(
       label('shareRoot', ''),
       label('siteName', 'Timely'),
       label('siteDescription', '极简技术博客'),
+      label('siteUrl', 'https://blog.example.com'),
       label('siteIcp', '京ICP备00000000号'),
       label('bloggerName', 'yihwang'),
       label('bloggerMotto', '热爱技术，保持好奇'),
-      label('bloggerBio', '全栈开发者，关注前后端与基础设施。'),
+      label('bloggerBio', '全栈开发者 & 基础设施折腾者 <yihwang>'), // 含 & < >：验证只转义一次
       label('bloggerEmail', 'me@example.com'),
       label('bloggerGithub', 'https://github.com/example'),
+      label('shareOpenGraphDomain', 'blog.example.com', true),
       // 开发调试期主题资源引用（Trilium 托管 Code 笔记）。
       // 必须 isInheritable：否则只有根笔记页面能取到，子页面渲染时 note 是子笔记、取不到关系。
       relation('shareCss', 'themeCss0001', true),
       relation('shareJs', 'themeJs0001', true),
+      // ~shareFavicon → File 笔记（勾「可继承」），替代内置 emoji data-URI
+      relation('shareFavicon', 'favicon00001', true),
     ],
   },
   null,
+);
+
+/* ---- favicon（File 笔记，通过 ~shareFavicon 关系引用） ---- */
+addNote(
+  { noteId: 'favicon00001', title: 'favicon.svg', type: 'file', mime: 'image/svg+xml', attributes: [label('shareHiddenFromTree', '')] },
+  'root0000blog',
+);
+content.set(
+  'favicon00001',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#d97706"/><text x="16" y="23" font-size="20" text-anchor="middle" fill="#fff">T</text></svg>',
 );
 
 /* ---- 主题资源 code 笔记（线上 Trilium 托管的那两份，不出现在导航） ---- */
@@ -70,8 +84,18 @@ addNote(
   'root0000blog',
 );
 
-const post = (id, title, parent, labels, html) => {
-  addNote({ noteId: id, title, type: 'text', mime: 'text/html', attributes: labels.map(([n, v]) => label(n, v)) }, parent);
+/** labels / attrs：数组项为 [name, value] 时按 label 处理，也可直接传属性对象（如 relation(...)） */
+const post = (id, title, parent, attrs, html) => {
+  addNote(
+    {
+      noteId: id,
+      title,
+      type: 'text',
+      mime: 'text/html',
+      attributes: attrs.map((a) => (Array.isArray(a) ? label(a[0], a[1]) : a)),
+    },
+    parent,
+  );
   content.set(id, html);
 };
 
@@ -86,6 +110,10 @@ post(
     ['blogTags', 'Trilium'],
     ['blogTags', 'Node.js'],
     ['blogSummary', '把主题开发从「复制到 Trilium 看效果」变成「本地刷新」…'],
+    // OG 元信息：label 形态（值原样输出）
+    ['shareOpenGraphURL', 'https://blog.example.com/etapi-local-dev'],
+    ['shareOpenGraphImage', 'https://cdn.example.com/og/etapi-local-dev.png'],
+    ['shareDisallowRobotIndexing', ''],
   ],
   `<h2>问题</h2><p>每次改 EJS 都要复制进 Trilium，反馈太慢。</p>
    <h3>方案</h3><p>用 Node 起一个本地服务，读取真实数据，实时渲染模板。</p>
@@ -104,6 +132,10 @@ post(
     ['blogCategory', '前端'],
     ['blogTags', 'Vue'],
     ['blogSummary', '把客户端渲染搬回服务端，首屏即内容。'],
+    // OG 元信息：relation 形态（指向 File 笔记 → api/notes/<id>/download）
+    ['shareDescription', 'SSR 重构后首屏不再依赖 Vue 运行时。'],
+    ['shareOpenGraphColor', '#d97706'],
+    relation('shareOpenGraphImage', 'favicon00001'),
   ],
   `<h2>现状</h2><p>EJS 出空壳，Vue 再画一遍。</p>
    <h3>方向</h3><ul><li>列表页服务端渲染</li><li>只保留交互用 JS</li></ul>
@@ -113,7 +145,7 @@ post(
 
 post(
   'post0000003',
-  '在 NAS 上跑顺一切',
+  '在 NAS 上跑顺一切 & 折腾 <笔记>', // 标题含 & < >：验证只转义一次
   'folder000002',
   [
     ['publish', 'true'],
@@ -121,6 +153,8 @@ post(
     ['blogCategory', '基础设施'],
     ['blogTags', 'Docker'],
     ['blogSummary', '飞牛 NAS + Cloudflare Tunnel 的日常。'],
+    // og:image 兜底：没有 OG 相关属性时用文章封面（相对路径 + #siteUrl 拼成绝对地址）
+    ['headerImage', 'api/attachments/att000000001/image/pic.png'],
   ],
   '<h2>拓扑</h2><p>NAS 跑 Docker，ECS 跑 frps / DERP。</p>',
 );
