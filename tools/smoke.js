@@ -16,7 +16,7 @@
  *   I. canvas（Excalidraw）笔记
  *   J. 代码高亮（highlight.js 引用 / 语言名归一 / 5 种 MIME 形态）
  *   K. 笔记图标（#iconClass → 首页卡片 / 详情页标题）
- *   L. 侧边栏布局（静态排布 / 不用 sticky / self-start 保留）
+ *   L. 侧边栏固定在视口（吸顶 + 限高 + 内部滚动 / 不被 header 遮挡）
  */
 
 import fs from 'node:fs';
@@ -474,18 +474,20 @@ if (iconClone) {
 }
 
 /* ------------------------------------------------------------------
-   L 段 · 侧边栏布局（静态排布 / 不用 sticky）
+   L 段 · 侧边栏固定在视口（吸顶 + 限高 + 内部滚动）
    ------------------------------------------------------------------
-   演变：
-     ① 最初 `sticky top-[2.5rem]`（40px）→ 吸顶后被 header（h-14 = 56px）压住 16px；
-     ② 修成 `sticky top-[4.5rem]`（72px = header + 16px 间距）+ z-index:20；
-     ③ **现在改为完全不用 sticky** —— 右侧内容不长，跟滚一小段再吸顶没意义，
-        用户要求「右侧不动」→ 静态参与文档流。
+   演变（三次）：
+     ① `sticky top-[2.5rem]`（40px）→ 吸顶后被 header（h-14 = 56px）压住 16px；
+     ② `sticky top-[4.5rem]`（72px = header + 16px 间距）+ z-index:20 → 修好遮挡；
+     ③ 去掉 sticky 改静态排布；④ **最终：固定不动** ——
+        sticky 吸顶 + max-height 限高 + overflow-y 内部滚动，
+        滚左侧正文时右侧一直在原位，右侧内容长了由它自己滚。
 
-   守卫思路：断言 aside **没有** sticky / top-[*rem] / z-index 这类吸顶相关声明，
-   并确认 `self-start` 还在（grid 子项不加它会被拉伸到与左侧等高）。
-   同时保留 header 高度的读取 —— 将来若有人重新引入 sticky，
-   这里的报错信息会直接把「top 必须 ≥ header 高度」讲清楚。
+   守卫思路：
+     - aside 必须带自定义类 `aside-sticky`（用于 CSS 手写规则）
+     - CSS 里该规则必须同时有 top / max-height / overflow-y —— 三者缺一不算「固定」
+     - 跨文件对齐：top ≥ header 高度（不硬编码 3.5rem，从 EJS 读 h-N 换算）
+     - `self-start` 必须保留（grid 子项不被拉伸）
    ------------------------------------------------------------------ */
 
 /* 读取主题源码（EJS + CSS）做静态校验 —— 这两个是纯源码事实，mock/真实库都跑 */
@@ -496,8 +498,7 @@ try {
   themeCssSrc = fs.readFileSync(themePath(config.cssFile), 'utf8');
 } catch { /* 下面断言会各自报错 */ }
 
-/* L1 · header 高度（h-14 是 Tailwind 的 --spacing 倍数，1 = 0.25rem）
-        —— 即使现在不 sticky 也读出来，供报错信息与将来复用 */
+/* L1 · header 高度（h-14 是 Tailwind 的 --spacing 倍数，1 = 0.25rem） */
 const headerSpacing = themeEjsSrc.match(/<header[^>]*class="[^"]*\bh-(\d+)\b/);
 const headerRem = headerSpacing ? Number(headerSpacing[1]) * 0.25 : null;
 check('能从 EJS 读出 header 高度（h-N 工具类）',
@@ -511,33 +512,56 @@ const asideClass = asideTag
 check('能从 EJS 里取到 <aside> 的 class',
   asideClass.length > 0, '未匹配到 <aside ... class="...">');
 
-/* L3 · 核心：aside 不应再有任何吸顶/浮层声明 */
-check('侧边栏不使用 sticky（改为随文档流静态摆放）',
-  !/\bsticky\b/.test(asideClass),
-  `aside 仍带 sticky → 会吸顶；若确要吸顶，top 必须 ≥ header ${headerRem ?? 3.5}rem`);
-check('侧边栏不设 top-[*rem]（无吸顶偏移）',
-  !/\btop-\\?\[[\d.]+rem\\?\]/.test(asideClass),
-  'aside 仍带 top-[*rem]，说明还残留吸顶写法');
-check('侧边栏不设 z-N 层级（静态元素不需要）',
-  !/(^|\s)z-\[?\d/.test(asideClass),
-  'aside 仍带 z-N，静态摆放时多余');
+/* L3 · aside 必须挂上自定义吸顶类 */
+check('侧边栏带 aside-sticky 类（固定视口用的自定义类）',
+  /(^|\s)aside-sticky(\s|$)/.test(asideClass),
+  `aside class = "${asideClass}"，缺少 aside-sticky`);
 
-/* L4 · `self-start` 必须保留：父级是 grid，不加它卡片会被拉成与左侧等高 */
+/* L4 · `self-start` 必须保留：父级是 grid，不加它卡片会被拉伸成与左侧等高 */
 check('侧边栏保留 self-start（grid 子项不被拉伸）',
   /\bself-start\b/.test(asideClass),
   '去掉 self-start 后卡片会被拉伸到与左侧栏等高');
 
-/* L5 · CSS 里不应再有 aside.sticky 死规则（上一版的吸顶 + 层级） */
-check('主题 CSS 已清除 aside.sticky 死规则',
-  !/aside\.sticky\s*\{/.test(themeCssSrc),
-  'CSS banner 段仍留着 aside.sticky，已无对应元素，属误导性死代码');
+/* L5 · CSS 规则三要素齐全（top + max-height + overflow-y）才算「固定」 */
+const asideRule = themeCssSrc.match(/aside\.aside-sticky\s*\{[\s\S]*?\}/);
+check('主题 CSS 有 aside.aside-sticky 规则',
+  !!asideRule, 'CSS banner 段缺少 aside.aside-sticky');
+const ruleBody = asideRule ? asideRule[0] : '';
+check('侧边栏规则含 position: sticky',
+  /position:\s*sticky/.test(ruleBody), ruleBody || '(规则未取到)');
+check('侧边栏规则含 max-height（限高，否则长内容会溢出视口）',
+  /max-height:\s*calc\(/.test(ruleBody), ruleBody || '(规则未取到)');
+check('侧边栏规则含 overflow-y: auto（超出由内部滚，不带动页面）',
+  /overflow-y:\s*auto/.test(ruleBody), ruleBody || '(规则未取到)');
 
-/* L6 · 渲染结果与源码一致 */
-check('渲染结果里 aside 已不含 sticky / top-[*rem]',
-  /<aside[^>]*class="[^"]*"/.test(home.body) &&
-  !/<aside[^>]*class="[^"]*\bsticky\b/.test(home.body) &&
-  !/<aside[^>]*class="[^"]*\btop-\\?\[[\d.]+rem\\?\]/.test(home.body),
-  '服务端渲染出的 aside 仍带吸顶相关 class');
+/* L6 · 跨文件对齐：吸顶 top 必须 ≥ header 高度（当下沿之下才不被压） */
+const asideTopRem = ruleBody.match(/top:\s*([\d.]+)rem/);
+const asideTop = asideTopRem ? Number(asideTopRem[1]) : null;
+if (headerRem !== null && asideTop !== null) {
+  const toPx = (rem) => Math.round(rem * 16);
+  check(`侧边栏吸顶不被 header 遮挡（top ${toPx(asideTop)}px ≥ header ${toPx(headerRem)}px）`,
+    asideTop >= headerRem,
+    `top 比 header 矮 ${toPx(headerRem - asideTop)}px → 卡片上沿会被压住`);
+  check('侧边栏吸顶与 header 之间留有呼吸间距（≥ 8px）',
+    (asideTop - headerRem) * 16 >= 8,
+    `间距仅 ${toPx(asideTop - headerRem)}px，卡片会紧贴导航栏`);
+} else {
+  check('能从 CSS 里读出侧边栏吸顶 top 值', false,
+    `headerRem=${headerRem}, asideTop=${asideTop}`);
+}
+
+/* L7 · max-height 必须与 top 同源（都用 100vh 与同一个 top 值），否则限高会算错 */
+if (ruleBody) {
+  const mh = ruleBody.match(/max-height:\s*calc\(100vh\s*-\s*([\d.]+)rem/);
+  check('max-height 以 100vh 减去吸顶 top 推导（限高与吸顶同坐标系）',
+    !!mh && asideTop !== null && Number(mh[1]) === asideTop,
+    `max-height 里的减数=${mh ? mh[1] : '(未取到)'}rem，top=${asideTop}rem —— 两者应一致`);
+}
+
+/* L8 · 渲染结果与源码一致 */
+check('渲染结果里 aside 带 aside-sticky 类',
+  /<aside[^>]*class="[^"]*\baside-sticky\b/.test(home.body),
+  '服务端渲染出的 aside 没有 aside-sticky');
 
 /* ------------------------------------------------------------------ */
 
