@@ -85,13 +85,13 @@ addNote(
 );
 
 /** labels / attrs：数组项为 [name, value] 时按 label 处理，也可直接传属性对象（如 relation(...)） */
-const post = (id, title, parent, attrs, html) => {
+const post = (id, title, parent, attrs, html, type = 'text', mime = 'text/html') => {
   addNote(
     {
       noteId: id,
       title,
-      type: 'text',
-      mime: 'text/html',
+      type,
+      mime,
       attributes: attrs.map((a) => (Array.isArray(a) ? label(a[0], a[1]) : a)),
     },
     parent,
@@ -155,6 +155,8 @@ post(
     ['blogSummary', '飞牛 NAS + Cloudflare Tunnel 的日常。'],
     // og:image 兜底：没有 OG 相关属性时用文章封面（相对路径 + #siteUrl 拼成绝对地址）
     ['headerImage', 'api/attachments/att000000001/image/pic.png'],
+    // 回归用例：已共享 + 已发布但「隐藏于分享树导航」的文章，仍必须出现在首页列表里
+    ['shareHiddenFromTree', ''],
   ],
   '<h2>拓扑</h2><p>NAS 跑 Docker，ECS 跑 frps / DERP。</p>',
 );
@@ -190,6 +192,23 @@ post(
 content.set(
   'about0000001',
   '<h2>关于我</h2><p>全栈开发者，喜欢折腾基础设施与开发工具。</p><h3>联系</h3><p>邮箱见侧边栏。</p>',
+);
+
+/** 回归用例：canvas（Excalidraw）笔记当文章用 —— 正文是场景 JSON，模板不该把它原样输出 */
+post(
+  'post0000006',
+  '手绘网络拓扑',
+  'folder000001',
+  [
+    ['publish', 'true'],
+    ['blogDate', '2026-09-29T10:00:00.000+0800'],
+    ['blogCategory', '灵光一闪'],
+    ['blogTags', 'Network'],
+    ['blogSummary', '一张手绘的网络拓扑。'],
+  ],
+  '{"type":"excalidraw","version":2,"elements":[{"id":"rect1","type":"rectangle"}]}',
+  'canvas',
+  'application/json',
 );
 
 const attachments = new Map([

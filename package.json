@@ -13,6 +13,7 @@
     "state": "node tools/state.js",
     "smoke": "node tools/smoke.js",
     "dom": "node tools/dom-test.js",
+    "unit": "node tools/unit-test.js",
     "script-test": "node tools/script-test.js",
     "push": "node tools/push-theme.js"
   },

@@ -16,7 +16,7 @@ export class EtapiError extends Error {
 export function createEtapi({ baseUrl, token, timeout = 20000 }) {
   const apiRoot = `${baseUrl.replace(/\/+$/, '')}/etapi`;
 
-  async function request(pathname, { method = 'GET', body, contentType, binary = false } = {}) {
+  async function request(pathname, { method = 'GET', body, contentType, binary = false, raw = false } = {}) {
     const url = `${apiRoot}${pathname}`;
     let res;
     try {
@@ -61,6 +61,9 @@ export function createEtapi({ baseUrl, token, timeout = 20000 }) {
     if (res.status === 204) return null;
     const text = await res.text();
     if (!text) return null;
+    // raw：正文类接口必须原样返回。正文可能本身就是合法 JSON（canvas / Excalidraw 场景、
+    // 纯 JSON 的文本笔记），自动 JSON.parse 会把字符串变成对象，模板里 String(obj) → "[object Object]"。
+    if (raw) return text;
     try {
       return JSON.parse(text);
     } catch {
@@ -73,7 +76,7 @@ export function createEtapi({ baseUrl, token, timeout = 20000 }) {
     request,
     appInfo: () => request('/app-info'),
     getNote: (noteId) => request(`/notes/${encodeURIComponent(noteId)}`),
-    getNoteContent: (noteId) => request(`/notes/${encodeURIComponent(noteId)}/content`),
+    getNoteContent: (noteId) => request(`/notes/${encodeURIComponent(noteId)}/content`, { raw: true }),
     putNoteContent: (noteId, content, contentType = 'text/plain') =>
       request(`/notes/${encodeURIComponent(noteId)}/content`, {
         method: 'PUT',

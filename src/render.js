@@ -44,8 +44,21 @@ function buildLocals({ store, note }) {
   };
 }
 
+/**
+ * canvas（Excalidraw）笔记在分享页里不是下发场景 JSON，而是渲染成一张图片。
+ * 实测线上 Trilium 的输出（末尾 utcDateModified 用于缓存失效）：
+ *   <img src="api/images/<noteId>/<encodeURIComponent(title)>?<utcDateModified>">
+ */
+function canvasMarkup(note) {
+  const stamp = note.utcDateModified || '';
+  return `<img src="api/images/${note.noteId}/${encodeURIComponent(note.title)}${stamp ? '?' + stamp : ''}">`;
+}
+
 export async function renderSharePage({ store, note, url = '/' }) {
-  const rawContent = note.type === 'book' ? '' : await store.content(note.noteId, false);
+  let rawContent = '';
+  if (note.type === 'canvas') rawContent = canvasMarkup(note);
+  else if (note.type !== 'book') rawContent = await store.content(note.noteId, false);
+
   const content = rewriteContent(rawContent, {
     resolveNote: (noteId) => store.get(noteId),
   });

@@ -40,6 +40,19 @@ function inheritableAttrs(node) {
   return [...node.ownLabels, ...node.ownRelations].filter((a) => a.isInheritable);
 }
 
+/** canvas 笔记的本地占位图（线上是 Trilium 画出来的） */
+function canvasPlaceholder(title) {
+  const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const w = 900;
+  const h = 320;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">
+<rect width="${w}" height="${h}" fill="#fafaf9"/>
+<rect x="1" y="1" width="${w - 2}" height="${h - 2}" fill="none" stroke="#e7e5e4" stroke-width="2"/>
+<text x="${w / 2}" y="${h / 2 - 12}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="26" fill="#78716c">${esc(title)}</text>
+<text x="${w / 2}" y="${h / 2 + 26}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="16" fill="#a8a29e">canvas（Excalidraw）笔记 · 线上由 Trilium 渲染，本地为占位图</text>
+</svg>`;
+}
+
 export class TriliumStore {
   constructor(api, { rootNoteId, ttl = 30000, depth = 6, maxNotes = 2000 } = {}) {
     this.api = api;
@@ -255,6 +268,15 @@ export class TriliumStore {
     if (hit && Date.now() - hit.ts < this.ttl) return hit;
     const node = this.nodes.get(noteId);
     let mime = node?.note.mime;
+
+    // canvas（Excalidraw）：线上由 Trilium 把场景画成图片；本地不模拟绘制，
+    // 给一张占位 SVG，免得浏览器拿到场景 JSON 显示成破图。
+    if (node?.note.type === 'canvas') {
+      const result = { buffer: Buffer.from(canvasPlaceholder(node.note.title), 'utf8'), contentType: 'image/svg+xml' };
+      this.contentCache.set('bin:' + noteId, { ...result, ts: Date.now() });
+      return result;
+    }
+
     try {
       const { buffer, contentType } = await this.api.getAttachmentContent(noteId);
       const result = { buffer, contentType: mime || contentType };

@@ -13,6 +13,7 @@
  *   F. 资源加载策略（开发期本地化 / 预览期保持原样）
  *   G. 拼写与依赖回归
  *   H. 分享元信息（OG / Twitter / favicon / robots）
+ *   I. canvas（Excalidraw）笔记
  */
 
 import fs from 'node:fs';
@@ -105,6 +106,12 @@ check('导航项都带 data-nav 钩子',
 check('（mock）未发布笔记不进列表', !config.mock || !home.body.includes('未发布草稿'));
 check('（mock）标签/分类聚合齐全',
   !config.mock || (home.body.includes('#/tag/Vue') && home.body.includes('#/category/')));
+check('（mock）#shareHiddenFromTree 的已发布文章仍在列表里',
+  !config.mock || home.body.includes('data-post-id="post0000003"'),
+  '隐藏于分享树导航 ≠ 不是文章；collect() 不能改用 getVisibleChildNotes()');
+check('collect() 用 getChildNotes() 遍历（不能用 getVisibleChildNotes）',
+  /rootNote\.getChildNotes\(\)\.forEach/.test(ejsSrc) && !/collect\([^)]*getVisibleChildNotes/.test(ejsSrc),
+  'EJS 里的文章收集遍历方式被改回可见性过滤');
 
 /* ---- D. 服务端 TOC ---- */
 console.log('\nD. 服务端 TOC');
@@ -151,11 +158,15 @@ function hostedAssetRefs(html) {
 const LOCAL_LINK = new RegExp(`<link[^>]+href="${PREFIX}/theme/${config.cssFile}"`);
 const LOCAL_SCRIPT = new RegExp(`<script type="module" src="${PREFIX}/theme/${config.jsFile}"></script>`);
 
-const sub = await get(`${BASE}${PREFIX}/post0000001`);
+/* 子页面用 POST_ID 那篇（真实库必须显式设 POST_ID=<真实文章 noteId>）；
+   POST_ID 取不到时退回 mock 用例，避免真实库跑出一堆无意义的「子页面」断言失败。 */
+const sub = post.status === 200 ? post : await get(`${BASE}${PREFIX}/post0000001`);
+const subOk = sub.status === 200;
+if (!subOk) console.log(`  ! 子页面断言跳过（${POST_ID} 与 post0000001 都取不到 200）`);
 
 if (config.assetMode === 'as-is') {
   check('首页保留 Trilium 资源引用（未本地化）', hostedAssetRefs(home.body).length > 0);
-  check('子页面保留 Trilium 资源引用（关系已继承）', hostedAssetRefs(sub.body).length > 0,
+  check('子页面保留 Trilium 资源引用（关系已继承）', !subOk || hostedAssetRefs(sub.body).length > 0,
     '子页面没有 api/notes 引用 → 关系没继承');
   check('未注入本地主题资源', !LOCAL_LINK.test(home.body));
   check('注释里的 CDN 保持原样', /<!--[\s\S]*?cdn\.jsdmirror\.com[\s\S]*?-->/.test(home.body));
@@ -173,13 +184,15 @@ if (config.assetMode === 'as-is') {
   check('注释里的 CDN 保持原样', /<!--[\s\S]*?cdn\.jsdmirror\.com[\s\S]*?-->/.test(home.body), '注释被误改写');
 
   const subAssets = hostedAssetRefs(sub.body);
-  check('子页面主题资源已本地化', subAssets.length === 0, `仍有 ${subAssets.length} 处`);
-  check('子页面继承到主题资源（关系需勾「可继承」）', LOCAL_LINK.test(sub.body), '子页面没有主题 CSS —— 关系没继承');
+  check('子页面主题资源已本地化', !subOk || subAssets.length === 0, `仍有 ${subAssets.length} 处`);
+  check('子页面继承到主题资源（关系需勾「可继承」）', !subOk || LOCAL_LINK.test(sub.body),
+    '子页面没有主题 CSS —— 关系没继承');
 }
 
 /* ---- G. 拼写与依赖回归 ---- */
 console.log('\nG. 拼写与依赖回归');
-check('渲染结果里不再出现 fiexd', !/fiexd/i.test(home.body + (post.body || '')));
+check('渲染结果里不再出现 fiexd', !config.mock || !/fiexd/i.test(home.body + (post.body || '')),
+  '（mock 专用；真实库正文里可能本来就有这个词）');
 check('主题源码里不再出现 fiexd', !/fiexd/i.test(jsSrc + ejsSrc));
 check('主题 JS 不再依赖 Vue', !/window\.Vue|createApp\(|reactive\(|computed\(/.test(jsSrc));
 check('主题 JS 不再依赖 BLOG_DATA', !/BLOG_DATA/.test(jsSrc));
@@ -249,6 +262,27 @@ if (config.mock) {
     (p3.body.match(/<title>[^<]*<\/title>/) || [])[0] || '');
 } else {
   console.log('  ! 跳过具体取值断言（mock 专用；真实库请核对笔记上的 #share* 属性）');
+}
+
+/* ---- I. canvas（Excalidraw）笔记 ---- */
+console.log('\nI. canvas（Excalidraw）笔记');
+if (config.mock) {
+  const cv = await get(`${BASE}${PREFIX}/post0000006`);
+  check('canvas 文章页 200', cv.status === 200, `status=${cv.status}`);
+  check('canvas 出现在首页列表里', home.body.includes('data-post-id="post0000006"'));
+  check('正文渲染成图片，而不是场景 JSON',
+    /<img src="(?:\/share)?\/api\/images\/post0000006\//.test(cv.body) && !cv.body.includes('"excalidraw"'),
+    (cv.body.match(/<img src="[^"]*images[^"]*"/) || [])[0] || '未找到 img');
+  check('页面里没有 [object Object]', !cv.body.includes('[object Object]'));
+  check('canvas 图片路由可访问（本地占位图）', await (async () => {
+    const res = await fetch(
+      `${BASE}${PREFIX}/api/images/post0000006/${encodeURIComponent('手绘网络拓扑')}`,
+    );
+    return res.status === 200 && /svg/.test(res.headers.get('content-type') || '');
+  })());
+} else {
+  check('真实库渲染结果里没有 [object Object]', !home.body.includes('[object Object]'));
+  console.log('  ! 跳过 canvas 专项断言（mock 专用）');
 }
 
 /* ------------------------------------------------------------------ */

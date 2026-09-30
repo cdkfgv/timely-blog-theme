@@ -109,6 +109,7 @@ npm run push                   # 满意后推回 Trilium 的 EJS/CSS/JS 三个 c
 ```bash
 npm run smoke          # 服务端渲染结果断言（默认打 4321；BASE=... 可换端口）
 npm run dom            # jsdom 里真实执行主题 JS，验交互行为
+npm run unit           # 纯逻辑单测（ETAPI 客户端等，不需要起服务）
 npm run script-test    # templateScript.js（Trilium 属性变更脚本）行为测试
 ```
 
@@ -116,7 +117,9 @@ npm run script-test    # templateScript.js（Trilium 属性变更脚本）行为
   `ETAPI_MOCK=1 BASE=http://localhost:4323 npm run smoke`（local）、
   `ASSET_MODE=as-is ETAPI_MOCK=1 BASE=http://localhost:4324 npm run smoke`（as-is）。
   mock 专属断言受 `ETAPI_MOCK` 控制，真实库跑时会自动跳过。
-- `script-test` 用 `new Function('api', src)` + 打桩 note 复刻 Trilium 的 Script 环境，不需要起服务。
+- **连真实库时务必显式给 `POST_ID`**（文章页相关断言要用），例如
+  `POST_ID=HvzRWi2r9bUh npm run smoke`。不给的话会用 mock 用例 id，A/B/D 段会被跳过。
+- `unit` / `script-test` 不需要起服务。
 
 ---
 
@@ -124,7 +127,9 @@ npm run script-test    # templateScript.js（Trilium 属性变更脚本）行为
 
 | 场景 | 线上 Trilium | 本工具 |
 |---|---|---|
-| 可见子笔记判定 | 只含「已共享」笔记（shaca） | ETAPI 读不到共享开关，改为排除 `#shareHiddenFromTree`；混有未共享笔记时给它们加该标签即可对齐 |
+| 可见子笔记判定 | 只含「已共享」笔记（shaca） | ETAPI 读不到共享开关，`getVisibleChildNotes()` 改用排除 `#shareHiddenFromTree` 近似。<br>⚠️ 主题的**文章收集**不该用它（`#shareHiddenFromTree` = 隐藏于树导航，≠ 不是文章），已改回 `getChildNotes()`；本地可能因此多出「未共享但 `#publish=true`」的笔记 |
+| canvas（Excalidraw）笔记 | 场景 JSON 渲染成 `<img src="api/images/<id>/<title>?<utcDateModified>">` | 标记逐字节对齐；但本地不绘制，`/api/images/:id/*` 返回占位 SVG |
+| 内容本身是合法 JSON 的正文 | 原样下发 | 必须原样下发 —— `getNoteContent` 曾无条件 `JSON.parse`，canvas 笔记会渲染成 `[object Object]`（已修，`npm run unit` 有守卫） |
 | 受保护笔记 | 显示 `Protected note cannot be displayed` | ETAPI 用 token 可读到内容，不做拦截 |
 | 正文净化 | 走 CKEditor 渲染 + sanitize | 直接用 ETAPI 原始内容 |
 | `t()` 国际化 | i18next 实际文案 | 直通 key |
