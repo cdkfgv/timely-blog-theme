@@ -3,15 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>侧边栏固定行为验证 · TimelyBlogTheme</title>
+<title>侧边栏 fixed 固定行为验证 · TimelyBlogTheme</title>
 <style>
   /* ------------------------------------------------------------------
      这个 mockup 只做一件事：让你**直接看到滚动行为**，确认右侧是否按预期固定。
-     用的是与主题完全一致的 CSS 关键值：
+     用的是与**主题最终方案（PLAN.md 阶段 8.10）完全一致**的 CSS 关键值：
        header   sticky top-0  + h-14   -> 3.5rem / 56px
-       aside    sticky top-4.5rem      -> 72px = 56px + 16px 间距
-       aside    max-height calc(100vh - 4.5rem - 1.5rem)
-       aside    overflow-y auto
+       aside    position: fixed
+                top: 7rem              -> 112px = header 56px + 容器 py-10 40px + 呼吸 16px
+                left: calc(...)        -> 复刻主题里"居中 grid 列"的公式
+                max-height calc(100vh - 7rem - 1.5rem)
+                overflow-y auto
+     ⚠️ 注意 top 是 7rem 而不是 4.5rem：fixed 脱离文档流后不再享受容器的 py-10 上内边距，
+        必须自己把那 2.5rem 补回来，否则会比改动前偏上 24px。
      页面刻意做得比视口长（左侧塞很多卡片），方便滚动观察。
      ------------------------------------------------------------------ */
   * { box-sizing: border-box; }
@@ -52,7 +56,7 @@
     padding: 2.5rem 1.5rem;             /* py-10 px-6 */
     display: grid;
     grid-template-columns: 1fr 270px;
-    align-items: start;                 /* lg:items-start —— 关键 */
+    align-items: start;                 /* lg:items-start */
     gap: 2.5rem;
   }
 
@@ -68,21 +72,31 @@
   .card p { margin: 0; color: #78716c; font-size: 13px; }
   .card .meta { margin-top: 0.75rem; font-size: 12px; color: #a8a29e; }
 
-  /* ============ 右侧：本次要验证的对象 ============ */
-  .aside-sticky {
-    position: sticky;
-    top: 4.5rem;                                /* = header 3.5rem + 1rem */
-    max-height: calc(100vh - 4.5rem - 1.5rem);  /* 视口高 − 吸顶位 − 底部留白 */
+  /* ============ 右侧：本次要验证的对象 ============
+     ⚠️ 主题里容器是 max-w-[100rem] / px-5 sm:px-8 xl:px-10，
+        这里 mockup 缩小成 68rem / 1.5rem 以便整页可见 ——
+        但 left 的**公式结构完全一致**，是等比例复刻。
+     ⚠️ mockup 里 .wrap 没有 transform/filter/perspective/contain，
+        与真实页一致（否则会破坏 fixed 的包含块）。 */
+  .aside-fixed {
+    position: fixed;
+    top: 7rem;                                  /* = header 3.5rem + 容器 py-10 2.5rem + 呼吸 1rem */
+    --aside-pad: 1.5rem;
+    --aside-inner: calc(min(100vw, 68rem) - 2 * var(--aside-pad));
+    left: calc(max(0px, (100vw - 68rem) / 2) + var(--aside-inner) - 270px);
+    width: 270px;
+    max-height: calc(100vh - 7rem - 1.5rem);    /* 视口高 − 固定位 − 底部留白 */
     overflow-y: auto;
+    z-index: 20;
     display: flex;
     flex-direction: column;
     gap: 1rem;                                  /* space-y-4 的等价物 */
     scrollbar-width: thin;
     scrollbar-color: #d6d3d1 transparent;
   }
-  .aside-sticky::-webkit-scrollbar { width: 6px; }
-  .aside-sticky::-webkit-scrollbar-track { background: transparent; }
-  .aside-sticky::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 3px; }
+  .aside-fixed::-webkit-scrollbar { width: 6px; }
+  .aside-fixed::-webkit-scrollbar-track { background: transparent; }
+  .aside-fixed::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 3px; }
 
   .side-card {
     background: #fff;
@@ -112,7 +126,7 @@
 
   @media (max-width: 1023px) {
     .wrap { grid-template-columns: 1fr; }
-    .aside-sticky { position: static; max-height: none; overflow: visible; }
+    .aside-fixed { position: static; width: auto; max-height: none; overflow: visible; }
   }
 </style>
 </head>
@@ -127,7 +141,7 @@
   <main>
     <div class="card" style="background:#fffbeb;border-color:#fcd34d">
       <h3>↓ 往下滚，观察右边</h3>
-      <p>右边应该<b>停在原地不动</b>（吸顶在导航栏下方 16px 处），不会跟着页面滚上去。</p>
+      <p>右边应该<b>一个像素都不动</b>（不是"滚一段后吸住"，而是从头到尾固定在视口里）。</p>
     </div>
     <div class="card"><h3>文章卡片 1</h3><p>滚动时左侧列表正常上移。</p><div class="meta">2026-09-30</div></div>
     <div class="card"><h3>文章卡片 2</h3><p>右侧的卡片应该一直看得见。</p><div class="meta">2026-09-29</div></div>
@@ -139,12 +153,13 @@
     <div class="card"><h3>文章卡片 8</h3><p>最后一张。</p><div class="meta">2026-09-23</div></div>
   </main>
 
-  <aside class="aside-sticky">
+  <aside class="aside-fixed">
     <div class="side-card hint">
       <h4>验证要点</h4>
       <ul>
-        <li>往下滚 → 右侧<b>不动</b>（吸顶）</li>
-        <li>顶部间距 16px，不被导航压住</li>
+        <li>往下滚 → 右侧<b>完全不动</b>（`position: fixed`）</li>
+        <li>顶部落点 = header 56px + 容器 py-10 40px → <b>与改动前完全一致</b></li>
+        <li>水平位置对齐左列右侧（`left` 公式复刻主题）</li>
         <li>右侧内容比视口高时 → <b>它自己内部滚</b>，不影响整页</li>
       </ul>
     </div>

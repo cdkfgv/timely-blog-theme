@@ -580,17 +580,29 @@ var year = new Date().getFullYear();
         </main>
 
         <!-- ==================== 侧边栏 ==================== -->
-        <% /* 右侧卡片**固定在视口内**：sticky 吸顶 + 限高 + 内部滚动。
-              用户原话「右侧固定，不再滚动了」—— 滚左侧正文时右侧一直在原位，
-              右侧内容超出可用高度时由它自己内部滚，不带动整个页面。
-              ⚠️ top 必须 ≥ header 高度（h-14 = 3.5rem / 56px），否则吸顶后被导航压住；
-                 取 4.5rem（56px + 16px 呼吸间距）。
-              ⚠️ max-height 与 top 必须成对：高度上限 = 视口高 − 吸顶位置 − 底部留白，
-                 这样「限高」和「吸顶」才在一个坐标系里，不会算出负数或溢出。
-              ⚠️ 这三个值（top / max-height / 溢出滚动）在 TimelyBlogTheme.css 末尾
-                 banner 段的 aside.sticky 里手写 —— tailwind 产物没有这些任意值类。
-              self-start 仍要保留：父级是 grid，不加它卡片会被拉伸到与左侧等高。 */ %>
-        <aside class="hidden lg:block self-start w-[270px] shrink-0 space-y-4 aside-sticky">
+        <% /* 右侧卡片**完全固定**（position: fixed）—— 从头到尾一动不动，不参与滚动。
+              用户原话：「我要的是完全不动，不是滚动后离上方 16px 后停止；
+                        既然高度都不需要滚动，那么右侧这一块可以完全固定」。
+
+              ⚠️ 为什么必须 fixed 而不是 sticky：
+                 sticky 的语义就是「随滚动走一段、到阈值吸住」—— 初始位置在文档流里，
+                 页面上方的 padding 会先把它往下推，滚起来必然有个「先动一下」的过程。
+                 要做到「一次都不动」，只能脱离文档流，走 fixed。
+
+              ⚠️ fixed 的代价：脱离文档流后不再自动对齐 grid 列，得自己算水平位置。
+                 公式（已在 5 个视口宽度验证过，与 grid 布局逐像素一致）：
+                   左偏移 = 容器居中偏移 + 容器内容宽 − 270（卡片自身宽）
+                 其中 容器内容宽 = min(100vw, 100rem) − 2×内边距，
+                 min()/max() 让它在「容器未满宽」与「容器已满宽居中」两种情形下都成立。
+                 垂直：top = 4.5rem（header 3.5rem / 56px + 16px 间距）。
+
+              ⚠️ 所有规则写在 TimelyBlogTheme.css 末尾 banner 段的 aside.aside-fixed 里
+                 （Tailwind 产物没有这些任意值/函数类）。
+                 容器宽度、内边距、gap、aside 宽度若改动，公式要同步改 —— smoke L 段有守卫。
+
+              保留 w-[270px] / shrink-0 供 Tailwind 断点类判断；self-start 已无意义
+              （fixed 元素不参与 grid 布局），故移除以避免误导。 */ %>
+        <aside class="hidden lg:block w-[270px] shrink-0 space-y-4 aside-fixed">
           <div class="p-5 rounded-xl bg-white dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/50">
             <div class="flex items-start gap-3 mb-4">
               <img src="<%- esc(avatarUrl) %>" class="w-14 h-14 rounded-full border-2 border-stone-200 dark:border-zinc-700 shrink-0" alt="avatar">

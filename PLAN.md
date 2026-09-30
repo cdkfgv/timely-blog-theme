@@ -358,11 +358,13 @@ Trilium 输出的 `<code>` class 是 **MIME 形式**，实测 5 种形态，Pris
 
 ---
 
-## 阶段 8 · 侧边栏固定在视口（吸顶 + 限高 + 内部滚动）✅
+## 阶段 8 · 侧边栏**完全固定**（`position: fixed` + 限高 + 内部滚动）✅
 
-> 本阶段反复了三次，最终方案是 **8.8**。三次记录都保留 ——
-> 因为它们各自暴露了一个真实约束（header 遮挡 / 静态排布丢了「一直可见」/ 重新吸顶要限高），
+> 本阶段反复了**四次**，最终方案是 **8.10**。四次记录都保留 ——
+> 因为它们各暴露了一个真实约束（header 遮挡 / 静态排布丢了「一直可见」/ sticky 必然「先滚一段」/ fixed 丢失文档流上边距），
 > 后来人做同类改动时值得顺着读一遍。
+>
+> **一句话结论**：要「一次都不动」只能用 `fixed`；`sticky` 结构上做不到。
 
 ### 8.1 问题（用户报告）
 
@@ -404,63 +406,129 @@ Trilium 输出的 `<code>` class 是 **MIME 形式**，实测 5 种形态，Pris
 
 ### 8.7 测试（L 段的演进）
 
-`smoke` 的 **L 段**随方案三次调整断言方向，当前版对应 8.8（共 13 项）：
+`smoke` 的 **L 段**随方案四次调整断言方向，当前版对应 8.10（共 **25** 项）：
 
 | 版本 | 断言方向 |
 |---|---|
 | ① 对应 8.3 | 源码两侧对齐：读 header `h-N` 换算 rem + CSS 的吸顶 `top`，比大小 + 间隙 + z-index 区间 |
 | ② 对应 8.6 | 断言 `aside` **没有** `sticky` / `top-[*rem]` / `z-N`，且 `self-start` 仍在 |
-| ③ **当前（8.8）** | `aside` 带自定义类 `aside-sticky`；CSS 规则**三要素齐全**（`position:sticky` + `max-height:calc()` + `overflow-y:auto`）；`top ≥ header`；`max-height` 的减数与 `top` **必须同值**；渲染结果带该类 |
+| ③ 对应 8.8 | `aside` 带自定义类 `aside-sticky`；CSS 三要素齐全（`position:sticky` + `max-height:calc()` + `overflow-y:auto`）；`max-height` 的减数与 `top` **必须同值** |
+| ④ **当前（8.10）** | `aside` 带 `aside-fixed`、**已移除 `self-start`**（fixed 不参与 grid）、**不再有 `sticky`**；规则含 `position:fixed` + `top` + `left` + `max-height` + `overflow-y` + `z-index`；**`top` ≥ header + 容器 `py-N`**（防丢 py-10）；`left` 公式必须引用容器的 `max-w-[Nrem]` 与侧栏宽 `270px`；内边距分段与 `sm:px-8` / `xl:px-10` 对应 |
+
+- **⚠️ 静态源码断言的两个坑（本次都踩到了）**：
+  1. **正则误匹配**：第一版用 `\bpy-(\d+)\b` 找容器内边距，结果匹配到页面更早的目录链接 **`py-1`** →
+     算出 `minTop = 3.5 + 0.25 = 3.75rem`，比实际的 4.5rem 小 → **bug 被漏过**。
+     修复：锚定主体容器 —— `/class="[^"]*\bflex-1\b[^"]*\bflex-col\b[^"]*max-w-\[\d+rem\][^"]*\bpy-(\d+)\b/`。
+  2. **注释误伤**：`left` 公式断言里写了 `|| new RegExp(...).test(ruleBody)` 兜底，
+     而 CSS **注释里**也有 `100rem` → 误通过。
+     修复：只取 `left:` 那条声明本体（`ruleBody.match(/\bleft:\s*([^;]+);/)`）再校验。
 
 - **守卫有效性逐条实测过**：
-  - 回退成 `top-[2.5rem]` → 3 项失败，报「top 比 header 矮 16px → 卡片上沿会被压住」。
-  - 加回 `sticky top-[4.5rem]`（在 8.6 版断言下）→ 3 项失败，报「aside 仍带 top-[*rem]，说明还残留吸顶写法」。
-  - **把 `max-height` 的减数故意改成 `3rem`（与 `top` 不一致）→ 1 项失败**，
-    报「max-height 里的减数=3rem，top=4.5rem —— 两者应一致」。这条最有价值：
-    它防的是「只改了 `top` 忘了改 `max-height`」这类静默错位。
-- 顺带踩到：静态源断言会把 CSS **注释里**出现的字面量当命中（曾因注释写了 `aside.sticky {` 而误报）。
-- 可视化验证：`mockups/sidebar-sticky-mockup.html` —— 与主题同参数（header 56px / top 72px /
-  `max-height calc(100vh - 4.5rem - 1.5rem)`），左侧塞 8 张卡片制造滚动，可直接目视确认吸顶与内部滚动。
+  - 回退成 `top: 4.5rem` → 精确报「fixed 脱离文档流后丢掉了容器的 padding-top（2.5rem），
+    top 应 ≥ 6rem…**实际 4.5rem → 会比原来偏上 24px**」。
+  - 把 `left` 里的 `100rem` 改成 `96rem` → 报「left 公式未引用容器 max-width」。
+  - 在 8.6 版断言下加回 `sticky top-[4.5rem]` → 报「aside 仍带 top-[*rem]，说明还残留吸顶写法」。
+- 可视化验证：`mockups/sidebar-sticky-mockup.html` —— 与主题同参数（header 56px / **`top: 7rem`(112px)** /
+  `left` 公式 / `max-height calc(100vh - 7rem - 1.5rem)`），左侧塞 8 张卡片制造滚动，可直接目视确认「一动不动」。
 
 | 套件 | mock·local | mock·as-is | 真实库 |
 |---|---|---|---|
-| `smoke` | **109** | **108** | **83**（`POST_ID=HvzRWi2r9bUh`）|
-| `dom` | **63** | — | —（mock 专用）|
+| `smoke` | **125** | **124** | **99**（`POST_ID=HvzRWi2r9bUh`）|
+| `dom` | **63** | — | —（mock 专用，指向真实库会主动拒绝）|
 | `unit` / `script-test` | **5** / **24** | — | — |
 
-### 8.8 最终方案：**固定在视口（吸顶 + 限高 + 内部滚动）**
+### 8.8 中间方案②：**sticky 吸顶 + 限高 + 内部滚动**（已被 8.10 取代）
 
 用户澄清：**「右侧固定，不再滚动了」** —— 要的是滚左侧时右侧**一直在原位**。
 
-- **EJS**：`aside` 加自定义类 **`aside-sticky`**（刻意不叫 `sticky` —— 避免与 Tailwind
-  工具类同名产生歧义/互相干扰），保留 `self-start`。
-- **CSS**（`TimelyBlogTheme.css` 末尾 banner 段，`@media (min-width:1024px)`）：
+- `aside` 加自定义类 `aside-sticky`（刻意不叫 `sticky`，避免与 Tailwind 工具类同名），`self-start` 保留。
+- CSS：`position: sticky; top: 4.5rem; max-height: calc(100vh - 4.5rem - 1.5rem); overflow-y: auto;`
+- **⚠️ 三个值必须成组推导**：`top` ≥ header（`h-14` = 3.5rem）；`max-height` 的**减数必须等于 `top`**（限高与吸顶同坐标系）；没有 `overflow-y` 长内容会溢出视口而非内部滚动。
 
-  ```css
-  aside.aside-sticky {
-    position: sticky;
-    top: 4.5rem;                                /* = header 3.5rem + 1rem 间距 */
-    max-height: calc(100vh - 4.5rem - 1.5rem);  /* 视口高 − 吸顶位 − 底部留白 */
+**为什么这个方案不够 —— 用户第三次纠正**（原话）：
+
+> 「我要的是**完全不动**，不是滚动后离上方 16px 后停止；既然高度都不需要滚动，那么右侧这一块可以**完全固定**」
+
+根因：**`sticky` 的语义就是「留在文档流 → 随滚动走一段 → 到阈值吸住」**，
+所以结构上必然存在「先滚一下」的过程，调 `top` 只能改「滚多远后吸住」，改不掉这个行为本身。
+而且 `top: 4.5rem` 虽然 ≥ header（不再被遮挡），但这 72px 的落点**并不同于它的初始位置 96px** ——
+所以滚动后卡片还是会**向上跳 24px**，这正是用户说的「滚动后离上方 16px 后停止」的观感来源。
+
+### 8.9 中间方案③：**`fixed` 的第一版（`top: 4.5rem`）** —— 偏上 24px，被 8.10 修正
+
+改成 `position: fixed` 后达到「完全不动」，但立刻暴露出**两个必须自己补偿的代价**：
+
+| # | 代价 | 原因 |
+|---|---|---|
+| 1 | 不再自动对齐 grid 列 | 脱离文档流后不再受 grid 布局约束 → **必须自己算 `left`** |
+| 2 | 丢掉文档流提供的上边距 | 容器 `py-10`（2.5rem）不再推它 → **必须显式加进 `top`** |
+
+第 2 点就是用户报告的「**初始高度不对**」：
+
+> 「初始高度不对，原来的初始高度是多少，现在怎么成16px了」
+
+- **原来的初始高度 = `header 3.5rem(56px)` + 容器 `py-10 2.5rem(40px)` = 96px**（此时 `aside` 还是静态排布，落在文档流里）。
+- 我写的 `top: 4.5rem`(72px) → **比原来偏上 24px**（= 96 − 72）。
+- 用户口中「16px」是把这 24px 偏差与其他间距一起估的约数；真值是 **24px**。
+
+→ 见 8.10 修正。
+
+### 8.10 最终方案：**`position: fixed` 完全固定** ✅
+
+```css
+@media (min-width: 64rem) {              /* lg */
+  aside.aside-fixed {
+    position: fixed;
+    top: 7rem;                           /* = header 3.5rem + 容器 py-10 2.5rem + 呼吸 1rem */
+    --aside-pad: 2rem;
+    --aside-inner: calc(min(100vw, 100rem) - 2 * var(--aside-pad));
+    left: calc(max(0px, (100vw - 100rem) / 2) + var(--aside-inner) - 270px);
+    max-height: calc(100vh - 7rem - 1.5rem);
     overflow-y: auto;
+    z-index: 20;
   }
+  @media (min-width: 80rem) {            /* xl:px-10 */
+    aside.aside-fixed { --aside-pad: 2.5rem; }
+  }
+}
+```
+
+- **`top` 推导**（三部分，缺一不可）：
+
+  | 组成 | 值 | 来源 |
+  |---|---|---|
+  | header 高度 | 3.5rem (56px) | EJS 第 337 行 `h-14 sticky top-0 z-50` |
+  | 容器上内边距 | 2.5rem (40px) | EJS 第 376 行 `py-10` —— **fixed 丢掉的就是这一项** |
+  | 呼吸间距 | 1rem (16px) | 与卡片间 `space-y-4` 同节奏 |
+  | **合计** | **7rem (112px)** | 修复 8.9 的 24px 偏上 |
+
+  `max-height` 的减数必须与 `top` 同值 → `calc(100vh - 7rem - 1.5rem)`。
+
+- **`left` 推导的妙处：纯 CSS 表达「居中的 grid 列位置」，一个 JS 都不需要**，
+  且**与 grid 的 `gap` 无关**（gap 只影响左列宽度，右列右边界是固定的）：
+
+  ```
+  left = 容器居中偏移                + 容器内容宽              − 卡片宽
+       = max(0px, (100vw - 100rem)/2) + (min(100vw,100rem) − 2×内边距) − 270px
   ```
 
-- **⚠️ 三个值必须成组推导**，这是本次方案的核心约束：
+  已在 **7 个视口宽度**（1024 / 1200 / 1280 / 1440 / 1536 / 1600 / 1920）逐像素验算一致。
 
-  | 值 | 取值 | 约束 |
-  |---|---|---|
-  | `top` | `4.5rem` | 必须 ≥ header 高度（`h-14` = 3.5rem），否则吸顶被压 |
-  | `max-height` | `calc(100vh - 4.5rem - 1.5rem)` | **减数必须等于 `top`** —— 限高与吸顶同坐标系 |
-  | `overflow-y` | `auto` | 没有它，长内容会溢出视口而不是内部滚动 |
+- **EJS**：`<aside class="hidden lg:block w-[270px] shrink-0 space-y-4 aside-fixed">`
+  —— 保留了 `w-[270px]`（供 `left` 公式减数读取、也便于 Tailwind 断点判断），
+  **移除了 `self-start`**（fixed 元素不参与 grid 布局，留着会误导）。
 
-- 附带：滚动条做了细样式（`scrollbar-width: thin` + WebKit 三件套），明暗两套色。
-- 收益：8.2 的遮挡问题**同时被解决**（`top` 已按 header 高度推导），
-  且右侧始终可见，不再随页面滚走。
+- **`fixed` 的包含块前提**（已核查）：祖先链上若有 `transform` / `filter` / `perspective` / `contain`
+  会破坏 `fixed`（退化成相对该祖先定位）。本页祖先链**没有**（`blur-*` 在无关背景 div 上）。
 
-### 8.9 ⚠️ 关键坑（跨阶段通用，仍然有效）：手写 CSS 必须显式声明工具类
+- **收益**：右侧卡片从头到尾**一个像素都不动**，且初始位置与改动前**完全一致**（96px 落点已由 `top` 的 40px 补偿还原）。
 
-`top: 4.5rem` / `max-height: calc(...)` 这些任意值 **都不在 Tailwind 构建产物里**。
+### 8.11 ⚠️ 关键坑（跨阶段通用，仍然有效）：手写 CSS 必须显式声明工具类
+
+`top: 7rem` / `left: calc(...)` / `z-index: 20` / `max-height: calc(...)` 这些值
+**都不在 Tailwind 构建产物里**（构建时 EJS 里写的不是这些值）。
 只改 EJS 的 class **不生效**；重建 Tailwind 又会覆盖手写段。
+→ 一律写进 `TimelyBlogTheme.css` 末尾 banner 段。
 
 > 推广：**改任何 Tailwind 任意值类（`top-[...]` / `z-N`）前，先 grep 构建产物确认它已生成**；
 > 没有就写在 banner 段，别指望改个 class 名就自动有样式。
