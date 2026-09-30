@@ -552,9 +552,18 @@ check('侧边栏规则含 overflow-y: auto（兜底内部滚动）',
 check('侧边栏规则含 z-index（低于 header、高于正文）',
   /z-index:\s*\d+/.test(ruleBody), '缺少 z-index');
 
-/* L4 · top 必须把「原来由文档流提供的上边距」补回来
+/* L4 · top 必须**正好等于**「改动前由文档流提供的落点」
    —— fixed 脱离文档流后，容器 py-10 的 padding-top 不再推它，必须显式加进 top。
-      期望 top = header 高度 + 容器 py-N + 呼吸间距(≥8px)
+
+      期望：top === header 高度 + 容器 py-N           （**恰好相等**，不是 ≥）
+
+   ⚠️ 为什么是「恰好相等」而不是「≥ + 呼吸间距」：
+      改动前 aside 在文档流里、是 `align-items:start` 的 grid 子项，
+      所以它的卡片顶边 **就是**容器内容区顶边 = header + 容器 py-N。
+      这个值本身已经含「header 到卡片」的净间距（py-10 = 40px），**不需要再加呼吸间距**。
+      曾经写成 `top ≥ header + py + 8px`，结果我按"≥"让 top 变成了 7rem(112px)，
+      比正确落点 96px 多了 16px → 用户报「比初始高度矮了大概 16px」。
+      → **守卫必须锁死"等于"，否则它无法发现"多加了间距"这类反向偏差。**
 
    ⚠️ 必须锚定「主体布局容器」，不能用裸 py-(\d+) —— 页面里 py-1 / py-2 / py-0.5
       一大堆（目录链接、按钮、分类胶囊…），裸正则会匹配到第一个（py-1）而静默取错值。
@@ -571,18 +580,18 @@ const asideTopRem = ruleBody.match(/top:\s*([\d.]+)rem/);
 const asideTop = asideTopRem ? Number(asideTopRem[1]) : null;
 if (headerRem !== null && asideTop !== null) {
   const toPx = (rem) => Math.round(rem * 16);
-  const minTop = headerRem + (containerPyRem ?? 0);
+  const exactTop = headerRem + (containerPyRem ?? 0);
   check(`侧边栏顶部不被 header 遮挡（top ${toPx(asideTop)}px ≥ header ${toPx(headerRem)}px）`,
     asideTop >= headerRem,
     `top 比 header 矮 ${toPx(headerRem - asideTop)}px → 卡片上沿会被压住`);
-  check(`fixed 的 top 已补回容器 py-N（top ${toPx(asideTop)}px ≥ header+py ${toPx(minTop)}px）`,
-    asideTop >= minTop,
-    `fixed 脱离文档流后丢掉了容器的 padding-top（${containerPyRem}rem），`
-    + `top 应 ≥ ${minTop}rem（header ${headerRem}rem + py ${containerPyRem}rem），`
-    + `实际 ${asideTop}rem → 会比原来偏上 ${toPx(minTop - asideTop)}px`);
-  check('侧边栏与上方元素之间留有呼吸间距（≥ 8px）',
-    (asideTop - minTop) * 16 >= 8,
-    `间距仅 ${toPx(asideTop - minTop)}px，卡片会紧贴上方元素`);
+  check(`fixed 的 top 正好补回文档流落点（top ${toPx(asideTop)}px = header+py ${toPx(exactTop)}px）`,
+    asideTop === exactTop,
+    `fixed 脱离文档流后必须**恰好**补回容器 padding-top（${containerPyRem}rem）：`
+    + `期望 top = ${exactTop}rem（header ${headerRem}rem + py ${containerPyRem}rem），`
+    + `实际 ${asideTop}rem → `
+    + (asideTop < exactTop
+      ? `比原来偏上 ${toPx(exactTop - asideTop)}px`
+      : `比原来偏低/偏下 ${toPx(asideTop - exactTop)}px（多加了间距，原来没有这一项）`));
 }
 
 /* L4b · max-height 的减数必须与 top 同值（同坐标系，防只改一处） */
