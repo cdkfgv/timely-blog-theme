@@ -113,6 +113,17 @@ check('collect() 用 getChildNotes() 遍历（不能用 getVisibleChildNotes）'
   /rootNote\.getChildNotes\(\)\.forEach/.test(ejsSrc) && !/collect\([^)]*getVisibleChildNotes/.test(ejsSrc),
   'EJS 里的文章收集遍历方式被改回可见性过滤');
 
+/* 详情页内边距：外层主体容器一层 + 详情视图容器一层，合计两层（旧版就是两层，
+   去掉内层会明显变紧 —— 正文贴边，是真实被用户发现的回归）。 */
+const PAD_BOX = /class="[^"]*max-w-\[100rem\][^"]*px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14[^"]*"/g;
+const homePad = (home.body.match(PAD_BOX) || []).length;
+check(`首页只有一层内边距容器（${homePad}）`, homePad === 1, `实际 ${homePad} 层`);
+if (post.status === 200) {
+  const postPad = (post.body.match(PAD_BOX) || []).length;
+  check(`详情页内边距容器两层（${postPad} = 外层 shell + 详情视图根）`, postPad === 2,
+    `实际 ${postPad} 层 —— 详情页内边距被清掉了？`);
+}
+
 /* ---- D. 服务端 TOC ---- */
 console.log('\nD. 服务端 TOC');
 if (post.status === 200) {
