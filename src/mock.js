@@ -122,6 +122,38 @@ post(
    <img src="api/attachments/att000000001/image/pic.png" alt="">`,
 );
 
+/* 代码高亮专项：覆盖 Trilium 实测输出的 5 种 MIME 形态 class。
+   Prism 时代这些 class 一个都对不上 → 正文零高亮；主题里 normalizeLang() 负责归一。 */
+post(
+  'post0000007',
+  '代码高亮语言标记对照',
+  'folder000001',
+  [
+    ['publish', 'true'],
+    ['blogDate', '2026-09-29T10:00:00.000+0800'],
+    ['blogCategory', '工具链'],
+    ['blogTags', 'highlight.js'],
+    ['blogSummary', 'Trilium 输出的 class 是 MIME 形式，需要归一后高亮器才认得。'],
+  ],
+  `<h2>五种实测形态</h2>
+   <p>bash（Trilium 里是 <code>text-x-sh</code>）：</p>
+   <pre><code class="language-text-x-sh">export NO_PROXY="*"
+for id in a b; do printf "%s\\n" "$id"; done</code></pre>
+   <p>yaml（<code>text-x-yaml</code>）：</p>
+   <pre><code class="language-text-x-yaml">services:
+  trilium:
+    image: triliumnext/trilium:latest
+    ports:
+      - "8080:8080"</code></pre>
+   <p>typescript（<code>application-typescript</code>）：</p>
+   <pre><code class="language-application-typescript">const greet = (name: string): string => name + '!';</code></pre>
+   <p>javascript（<code>application-javascript-env-backend</code>）：</p>
+   <pre><code class="language-application-javascript-env-backend">const app = createServer();
+app.listen(4321);</code></pre>
+   <p>自动（<code>text-x-trilium-auto</code>）：</p>
+   <pre><code class="language-text-x-trilium-auto">docker compose up -d</code></pre>`,
+);
+
 post(
   'post0000002',
   '主题结构优化笔记',

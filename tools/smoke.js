@@ -14,6 +14,7 @@
  *   G. 拼写与依赖回归
  *   H. 分享元信息（OG / Twitter / favicon / robots）
  *   I. canvas（Excalidraw）笔记
+ *   J. 代码高亮（highlight.js 引用 / 语言名归一 / 5 种 MIME 形态）
  */
 
 import fs from 'node:fs';
@@ -294,6 +295,67 @@ if (config.mock) {
 } else {
   check('真实库渲染结果里没有 [object Object]', !home.body.includes('[object Object]'));
   console.log('  ! 跳过 canvas 专项断言（mock 专用）');
+}
+
+/* ------------------------------------------------------------------ */
+/* J. 代码高亮（highlight.js）：引用、语言名归一、回归守卫 */
+/* ------------------------------------------------------------------ */
+
+check('已换用 highlight.js（不再引 Prism）',
+  /highlight\.min\.js/.test(home.body) && !/prism/i.test(home.body),
+  /prism/i.test(home.body) ? '页面上还有 Prism 引用' : '没有 highlight.js 引用');
+check('hljs 明暗双主题各挂一份且互斥',
+  /id="hljs-light"/.test(home.body) && /id="hljs-dark"[^>]*\bdisabled\b/.test(home.body),
+  '缺少 hljs-light / hljs-dark（暗色应为 disabled）');
+check('主题 JS 不再调用 Prism.highlightElement', !/Prism\.highlightElement/.test(jsSrc));
+check('主题 JS 有 normalizeLang 语言名归一', /function normalizeLang/.test(jsSrc));
+check('主题 JS 用 hljs.highlight / highlightAuto', /hljs\.highlightAuto|hljs\.highlight\(/.test(jsSrc));
+check('主题 JS 的明暗切换钩子已改名 syncHljs', /function syncHljs/.test(jsSrc) && !/function syncPrism/.test(jsSrc));
+
+/* 语言名映射表必须覆盖 Trilium 实测的 5 种 MIME 形态（否则真库正文零高亮） */
+const LANG_CASES = [
+  ['text-x-sh', 'bash'],
+  ['text-x-yaml', 'yaml'],
+  ['application-typescript', 'typescript'],
+  ['application-javascript-env-backend', 'javascript'],
+  ['text-x-trilium-auto', ''],
+];
+/* 在 jsdom 之外直接跑归一段：从主题 JS 里抠出 normalizeLang + LANGUAGE_MAP 求值 */
+const langOk = await (async () => {
+  const start = jsSrc.indexOf('var LANGUAGE_MAP');
+  const end = jsSrc.indexOf('function highlight(');
+  if (start < 0 || end < 0) return null;
+  const snippet = jsSrc.slice(start, end);
+  try {
+    const fn = new Function(snippet + '\nreturn normalizeLang;')();
+    return LANG_CASES.map(([raw, want]) => [raw, fn(raw), want]);
+  } catch (e) {
+    return null;
+  }
+})();
+if (langOk) {
+  langOk.forEach(([raw, got, want]) => {
+    check(`语言名归一：${raw} → ${want || '(空/自动)'}`, got === want, `实际得到 "${got}"`);
+  });
+} else {
+  check('能从主题 JS 中提取 normalizeLang 做归一验证', false, '切片失败，检查变量名是否被改动');
+}
+
+if (!config.mock) {
+  /* 真实库：直接核对渲染结果里 Trilium 的 language-* 是否被归一后带 hljs 标记 */
+  const rawLangs = [...new Set((post.body.match(/class="language-[^"]+"/g) || []))];
+  check('真实库文章页的代码块带 language-* 标记', rawLangs.length > 0,
+    rawLangs.join(' / ') || '该文章没有代码块，换 POST_ID 再测');
+  console.log(`  i 实际语言标记：${rawLangs.join(', ') || '(无)'}`);
+} else {
+  const p7 = await get(`${BASE}${PREFIX}/post0000007`);
+  check('高亮专项文章页 200', p7.status === 200, `status=${p7.status}`);
+  check('高亮专项文章在首页列表里', home.body.includes('data-post-id="post0000007"'));
+  /* SSR 阶段 class 应保持 Trilium 原样，归一发生在客户端（jsdom 由 dom-test 覆盖） */
+  LANG_CASES.slice(0, 4).forEach(([raw]) => {
+    check(`SSR 保留 Trilium 原始 class：language-${raw}`,
+      p7.body.includes(`language-${raw}`), '模板不应改写正文里的 class');
+  });
 }
 
 /* ------------------------------------------------------------------ */

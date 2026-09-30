@@ -118,8 +118,19 @@ npm run script-test    # templateScript.js（Trilium 属性变更脚本）行为
   `ASSET_MODE=as-is ETAPI_MOCK=1 BASE=http://localhost:4324 npm run smoke`（as-is）。
   mock 专属断言受 `ETAPI_MOCK` 控制，真实库跑时会自动跳过。
 - **连真实库时务必显式给 `POST_ID`**（文章页相关断言要用），例如
-  `POST_ID=HvzRWi2r9bUh npm run smoke`。不给的话会用 mock 用例 id，A/B/D 段会被跳过。
+  `POST_ID=tx5vjdhzMBf3 npm run smoke`。不给的话会用 mock 用例 id，A/B/D 段会被跳过。
+- ⚠️ **`npm run dom` 是 mock 专用** —— 它依赖固定 fixture（`post0000001` / `0000003` / `0000007`），
+  连真实库时会检测到 `config.mock === false` 并直接报错退出（退出码 2），不再抛一堆 null 异常。
+  真库的渲染正确性用 `smoke` 覆盖。
 - `unit` / `script-test` 不需要起服务。
+
+### 改动 mock 数据后
+
+mock 数据是**模块级常量**，改完 `src/mock.js` 必须**重启 mock 实例**才生效：
+
+```bash
+ETAPI_MOCK=1 PORT=4323 LIVE_RELOAD=0 node server.js    # 另开终端
+```
 
 ---
 

@@ -17,6 +17,21 @@ const BASE = (process.env.BASE || `http://localhost:${config.port}`).replace(/\/
 const PREFIX = config.shareUrlPrefix;
 const THEME_JS = fs.readFileSync(themePath(config.jsFile), 'utf8');
 
+/* 本测试依赖 mock 的固定 fixture（post0000001 / 0000003 / 0000007 等）做行为断言，
+   真实库里没有这些 noteId。连真实库时明确报错退出，避免抛出一堆看不懂的 null 异常。
+   判据用测到的实例是 mock 还是真库（BASE 指向哪个实例），而非本进程的 env。
+   真库的渲染正确性由 npm run smoke 覆盖。 */
+if (!config.mock && !process.env.FORCE_DOM_ON_REAL) {
+  console.error(
+    '\n[dom] 本测试需要 mock 数据（固定 fixture），当前 BASE 指向的是真实库实例。\n' +
+      '      正确用法：\n' +
+      '        ETAPI_MOCK=1 PORT=4323 LIVE_RELOAD=0 node server.js    # 另开终端起 mock\n' +
+      '        ETAPI_MOCK=1 BASE=http://localhost:4323 npm run dom\n' +
+      '      真实库的渲染正确性请用：POST_ID=<真实文章id> npm run smoke\n',
+  );
+  process.exit(2);
+}
+
 let pass = 0;
 let fail = 0;
 
@@ -37,8 +52,9 @@ async function fetchPage(pathname) {
   return res.text();
 }
 
-/** 把渲染结果挂进 jsdom，并执行本地主题脚本（不执行页面自带脚本、不加载外部资源） */
-function mount(html, url) {
+/** 把渲染结果挂进 jsdom，并执行本地主题脚本（不执行页面自带脚本、不加载外部资源）
+ *  opts.hljs：注入一个 highlight.js 存根，记录被调用时的语言名，用于验证语言归一 */
+function mount(html, url, opts = {}) {
   const cleaned = html
     .replace(/<script[^>]*\bsrc=["'][^"']*["'][^>]*>\s*<\/script>/gi, '')
     .replace(/<link[^>]*\brel=["']stylesheet["'][^>]*>/gi, '');
@@ -47,6 +63,19 @@ function mount(html, url) {
   // jsdom 未实现的滚动/观察者 API，补上最小桩，避免脚本因环境缺失而中断
   window.Element.prototype.scrollIntoView = function () {};
   window.scrollTo = function () {};
+  if (opts.hljs !== false) {
+    window.__hljsCalls = [];
+    window.hljs = {
+      highlight(text, o) {
+        window.__hljsCalls.push({ fn: 'highlight', language: o && o.language });
+        return { value: `<span class="hljs-token">${text}</span>`, language: (o && o.language) || 'plaintext' };
+      },
+      highlightAuto(text) {
+        window.__hljsCalls.push({ fn: 'highlightAuto', language: null });
+        return { value: `<span class="hljs-token">${text}</span>`, language: 'bash' };
+      },
+    };
+  }
   window.eval(THEME_JS);
   return dom;
 }
@@ -175,9 +204,14 @@ check('代码块被包装', pd.querySelectorAll('#post-content .code-block').len
 check('代码块显示语言', pd.querySelector('.code-header span')?.textContent === 'javascript',
   pd.querySelector('.code-header span')?.textContent);
 check('代码块有复制按钮', !!pd.querySelector('.code-header .copy-btn'));
-check('代码块已补 language-* 类',
-  /class="language-javascript"/.test(pd.querySelector('#post-content code').outerHTML),
-  pd.querySelector('#post-content code').outerHTML.slice(0, 80));
+check('代码块已加 hljs 类', /\bhljs\b/.test(pd.querySelector('#post-content code').className),
+  pd.querySelector('#post-content code').className);
+check('代码块写入 data-lang', pd.querySelector('#post-content code').getAttribute('data-lang') === 'javascript',
+  pd.querySelector('#post-content code').getAttribute('data-lang'));
+check('调用 hljs.highlight 时语言名已归一为 javascript',
+  pw.__hljsCalls.some((c) => c.fn === 'highlight' && c.language === 'javascript'),
+  JSON.stringify(pw.__hljsCalls));
+check('高亮结果已写入 DOM', !!pd.querySelector('#post-content code .hljs-token'));
 check('外链已加 target=_blank',
   [...pd.querySelectorAll('#post-content a[href]')].every((a) => a.hostname === 'localhost' ? true : a.target === '_blank'));
 
@@ -211,6 +245,55 @@ const post3 = mount(await fetchPage('/post0000003'), `${BASE}${PREFIX}/post00000
 const p3d = post3.window.document;
 check('单标题文章仍渲染目录（>1 才算多级）', p3d.getElementById('post-content').textContent.includes('拓扑'));
 check('无多级目录时不渲染移动端抽屉', !p3d.getElementById('mtoc-panel'));
+
+/* ------------------------------------------------------------------ */
+
+console.log('F. 代码高亮（highlight.js · 语言名归一）');
+/* 本节依赖 mock 的那篇「代码高亮语言标记对照」(post0000007) 作为固定 fixture，
+   它刻意覆盖了 Trilium 实测的 5 种 MIME 形态 class —— 真实库里没有这篇，跳过。 */
+if (config.mock) {
+const p7 = mount(await fetchPage('/post0000007'), `${BASE}${PREFIX}/post0000007`);
+const p7w = p7.window;
+const p7d = p7w.document;
+
+const LANGS = p7w.__hljsCalls.filter((c) => c.fn === 'highlight').map((c) => c.language);
+const AUTOS = p7w.__hljsCalls.filter((c) => c.fn === 'highlightAuto').length;
+/* 注意：只看代码块里的 code（.code-block pre code）；
+   正文里的行内 <code> 也会被 #post-content code 匹配到，不能用它计数 */
+const blockCodes = [...p7d.querySelectorAll('#post-content .code-block pre code')];
+
+check('识别出 5 个代码块', blockCodes.length === 5, `实际 ${blockCodes.length} 个`);
+check('4 个明确语言走 hljs.highlight', LANGS.length === 4, `实际 ${LANGS.length} 次：${LANGS.join(',')}`);
+check('text-x-sh → bash', LANGS.includes('bash'), LANGS.join(','));
+check('text-x-yaml → yaml', LANGS.includes('yaml'), LANGS.join(','));
+check('application-typescript → typescript', LANGS.includes('typescript'), LANGS.join(','));
+check('application-javascript-env-backend → javascript', LANGS.includes('javascript'), LANGS.join(','));
+check('text-x-trilium-auto → 交给 highlightAuto 自动探测', AUTOS === 1, `highlightAuto 调用 ${AUTOS} 次`);
+check('每个代码块都带上 hljs 类',
+  blockCodes.every((c) => /\bhljs\b/.test(c.className)),
+  blockCodes.map((c) => c.className).join(' | '));
+check('每个代码块都写入了 data-lang',
+  blockCodes.every((c) => (c.getAttribute('data-lang') || '').length > 0),
+  blockCodes.map((c) => c.getAttribute('data-lang')).join(','));
+check('高亮 token 已写入每个代码块',
+  blockCodes.every((c) => !!c.querySelector('.hljs-token')));
+check('语言标签不显示 MIME 原形',
+  [...p7d.querySelectorAll('.code-header span')].every((s) => !/text-x-|application-/.test(s.textContent)),
+  [...p7d.querySelectorAll('.code-header span')].map((s) => s.textContent).join(', '));
+
+/* 无 hljs 时不得抛异常（CDN 挂了也要能读代码） */
+const noHljs = mount(await fetchPage('/post0000007'), `${BASE}${PREFIX}/post0000007`, { hljs: false });
+let noHljsThrew = false;
+try { noHljs.window.document.getElementById('post-content'); } catch (err) { noHljsThrew = true; }
+check('hljs 缺失（CDN 挂掉）时主题 JS 不抛异常', !noHljsThrew);
+check('hljs 缺失时代码原文仍在（未高亮但可读）',
+  noHljs.window.document.querySelector('.code-block pre code').textContent.includes('export NO_PROXY'));
+check('hljs 缺失时仍保留复制按钮',
+  !!noHljs.window.document.querySelector('.code-block .copy-btn'))
+;
+} else {
+  console.log('  ! 跳过代码高亮专项（依赖 mock fixture post0000007）');
+}
 
 /* ------------------------------------------------------------------ */
 
