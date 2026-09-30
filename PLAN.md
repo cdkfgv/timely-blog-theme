@@ -425,17 +425,29 @@ Trilium 输出的 `<code>` class 是 **MIME 形式**，实测 5 种形态，Pris
 
 - **守卫有效性逐条实测过**：
   - 回退成 `top: 4.5rem` → 精确报「fixed 脱离文档流后丢掉了容器的 padding-top（2.5rem），
-    top 应 ≥ 6rem…**实际 4.5rem → 会比原来偏上 24px**」。
+    top 应 = 6rem…**实际 4.5rem → 会比原来偏上 24px**」。
+  - **改成 `top: 7rem`（多加了 16px"呼吸间距"）→ 精确报
+    「期望 top = 6rem（header 3.5rem + py 2.5rem），实际 7rem → **比原来偏低/偏下 16px（多加了间距，原来没有这一项）**」**。
+    这条是本阶段最有价值的一次修正（见 8.10 的 ⚠️）。
   - 把 `left` 里的 `100rem` 改成 `96rem` → 报「left 公式未引用容器 max-width」。
   - 在 8.6 版断言下加回 `sticky top-[4.5rem]` → 报「aside 仍带 top-[*rem]，说明还残留吸顶写法」。
-- 可视化验证：`mockups/sidebar-sticky-mockup.html` —— 与主题同参数（header 56px / **`top: 7rem`(112px)** /
-  `left` 公式 / `max-height calc(100vh - 7rem - 1.5rem)`），左侧塞 8 张卡片制造滚动，可直接目视确认「一动不动」。
+- **⚠️ 守卫的"等于" vs "≥" 教训**：第一版守卫写的是
+  `top ≥ header + 容器 py-N + 呼吸间距(≥8px)` —— 用的是 **`≥`**，
+  于是我"合理地"取了一个更大的值（7rem）它也不报错，**反向偏差（多加了间距）完全测不出来**。
+  正确写法是 `top === header + 容器 py-N`（**恰好相等**）：
+  因为改动前 aside 在文档流里，卡片顶边**就是**容器内容区顶边，这个值已经含净间距，
+  **不存在"再留一点呼吸"这一项**。→ **推导出来的"应该正好是多少"的断言，一律用 `===`，别用 `≥`。**
+- 可视化验证：`mockups/sidebar-sticky-mockup.html` —— 与主题同参数（header 56px / **`top: 6rem`(96px)** /
+  `left` 公式 / `max-height calc(100vh - 6rem - 1.5rem)`），左侧塞 8 张卡片制造滚动，可直接目视确认「一动不动」。
 
 | 套件 | mock·local | mock·as-is | 真实库 |
 |---|---|---|---|
-| `smoke` | **125** | **124** | **99**（`POST_ID=HvzRWi2r9bUh`）|
+| `smoke` | **124** | **123** | **98**（`POST_ID=HvzRWi2r9bUh`）|
 | `dom` | **63** | — | —（mock 专用，指向真实库会主动拒绝）|
 | `unit` / `script-test` | **5** / **24** | — | — |
+
+（比上一版各少 1 项：删掉了「留有呼吸间距（≥8px）」那条 —— **它本身是错的**，
+它把我"多加 16px"的错误做法固化成了断言。）
 
 ### 8.8 中间方案②：**sticky 吸顶 + 限高 + 内部滚动**（已被 8.10 取代）
 
@@ -479,11 +491,11 @@ Trilium 输出的 `<code>` class 是 **MIME 形式**，实测 5 种形态，Pris
 @media (min-width: 64rem) {              /* lg */
   aside.aside-fixed {
     position: fixed;
-    top: 7rem;                           /* = header 3.5rem + 容器 py-10 2.5rem + 呼吸 1rem */
+    top: 6rem;                           /* = header 3.5rem + 容器 py-10 2.5rem = 96px */
     --aside-pad: 2rem;
     --aside-inner: calc(min(100vw, 100rem) - 2 * var(--aside-pad));
     left: calc(max(0px, (100vw - 100rem) / 2) + var(--aside-inner) - 270px);
-    max-height: calc(100vh - 7rem - 1.5rem);
+    max-height: calc(100vh - 6rem - 1.5rem);
     overflow-y: auto;
     z-index: 20;
   }
@@ -493,16 +505,23 @@ Trilium 输出的 `<code>` class 是 **MIME 形式**，实测 5 种形态，Pris
 }
 ```
 
-- **`top` 推导**（三部分，缺一不可）：
+- **`top` 推导 —— ⚠️ 只有两项，千万别自作主张加第三项**：
 
   | 组成 | 值 | 来源 |
   |---|---|---|
   | header 高度 | 3.5rem (56px) | EJS 第 337 行 `h-14 sticky top-0 z-50` |
   | 容器上内边距 | 2.5rem (40px) | EJS 第 376 行 `py-10` —— **fixed 丢掉的就是这一项** |
-  | 呼吸间距 | 1rem (16px) | 与卡片间 `space-y-4` 同节奏 |
-  | **合计** | **7rem (112px)** | 修复 8.9 的 24px 偏上 |
+  | **合计** | **6rem (96px)** | = 改动前的静态落点 |
 
-  `max-height` 的减数必须与 `top` 同值 → `calc(100vh - 7rem - 1.5rem)`。
+  **⚠️⚠️ 血泪教训 —— 不要加"呼吸间距"**：
+  改动前 aside 在文档流里、是 `align-items:start` 的 grid 子项，
+  **卡片顶边就是容器内容区顶边 = 96px**，这 96px **已经包含** header(56) 到卡片(40px) 的净间距。
+  我一度按"再加 1rem 呼吸"写成 **`top: 7rem`(112px)** → 比正确落点**多了 16px**，
+  用户立刻报「**比初始高度矮了大概 16px**」。
+  → **"补回丢失的间距"只补「真的丢了的那一项」（这里是 py-10），不要顺手加审美间距。**
+  → 也正因如此，守卫必须用 **`===` 恰好相等**，不能用 `≥`（见 8.7 的教训）。
+
+  `max-height` 的减数必须与 `top` 同值 → `calc(100vh - 6rem - 1.5rem)`。
 
 - **`left` 推导的妙处：纯 CSS 表达「居中的 grid 列位置」，一个 JS 都不需要**，
   且**与 grid 的 `gap` 无关**（gap 只影响左列宽度，右列右边界是固定的）：
@@ -521,11 +540,25 @@ Trilium 输出的 `<code>` class 是 **MIME 形式**，实测 5 种形态，Pris
 - **`fixed` 的包含块前提**（已核查）：祖先链上若有 `transform` / `filter` / `perspective` / `contain`
   会破坏 `fixed`（退化成相对该祖先定位）。本页祖先链**没有**（`blur-*` 在无关背景 div 上）。
 
-- **收益**：右侧卡片从头到尾**一个像素都不动**，且初始位置与改动前**完全一致**（96px 落点已由 `top` 的 40px 补偿还原）。
+- **收益**：右侧卡片从头到尾**一个像素都不动**，且初始位置与改动前**完全一致**（顶部 96px 落点已由 `top` 精确还原）。
+
+### 8.10b ⚠️ 排查「高度对不上」类问题的有效方法
+
+本次「矮了 16px」的定位过程值得复用：
+
+1. **先把两个状态的落点写成算式，做差**——
+   改动前 `header 56 + py-10 40 = 96px`；当前 `top: 7rem = 112px`；差 **16px** —— 与用户观感**精确吻合**。
+   → **"差多少 px" 是最强的线索**：差值能直接指向"哪一项被多加/漏加了"。
+2. **不要指望 jsdom 量几何**：jsdom **不做布局**，`getBoundingClientRect()` 恒为 `0`，
+   computed style 也拿不到外部 CSS 的值 —— 我在 EJS 里插了诊断脚本 + jsdom 跑，全是 0，**白跑一趟**。
+   （该诊断脚本已删除，`data-layout-shell` 标记也已还原。）
+3. **卡片 padding 要先排除**：两侧卡片都是 `p-5`(1.25rem)，两种状态下一致 → 差异**只可能在 `top`**。
+   → 先证明"不变量相等"，就能把问题**收敛到唯一变量**上。
+
 
 ### 8.11 ⚠️ 关键坑（跨阶段通用，仍然有效）：手写 CSS 必须显式声明工具类
 
-`top: 7rem` / `left: calc(...)` / `z-index: 20` / `max-height: calc(...)` 这些值
+`top: 6rem` / `left: calc(...)` / `z-index: 20` / `max-height: calc(...)` 这些值
 **都不在 Tailwind 构建产物里**（构建时 EJS 里写的不是这些值）。
 只改 EJS 的 class **不生效**；重建 Tailwind 又会覆盖手写段。
 → 一律写进 `TimelyBlogTheme.css` 末尾 banner 段。

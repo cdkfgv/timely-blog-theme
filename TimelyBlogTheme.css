@@ -2284,7 +2284,10 @@ article h1 .post-icon { font-size: 1em; }
 @media (min-width: 64rem) {
   aside.aside-fixed {
     position: fixed;
-    top: 7rem;   /* = header 3.5rem(56px) + 容器 py-10 2.5rem(40px) + 间距 1rem(16px) */
+    top: 6rem;   /* = header 3.5rem(56px) + 容器 py-10 2.5rem(40px) = 96px
+                    ⚠️ 不要额外加"呼吸间距"：改动前 aside 在文档流里，卡片顶边就是容器内容区顶边
+                       （96px），这 96px 本身就含 header 56 到卡片 40px 的净间距，已经够了。
+                       曾写成 7rem(112px) 多加了 16px → 用户报「比初始高度矮了大概 16px」。 */
 
     /* 水平：对齐 grid 右列。内边距按断点分段（sm:2rem → xl:2.5rem） */
     --aside-pad: 2rem;
@@ -2292,7 +2295,7 @@ article h1 .post-icon { font-size: 1em; }
     left: calc(max(0px, (100vw - 100rem) / 2) + var(--aside-inner) - 270px);
 
     /* 高度：不滚动 —— 用视口高减去上下留白；真的超出时才内部滚兜底 */
-    max-height: calc(100vh - 7rem - 1.5rem);
+    max-height: calc(100vh - 6rem - 1.5rem);
     overflow-y: auto;
 
     /* 层级：低于 header(z-50)，高于正文 */

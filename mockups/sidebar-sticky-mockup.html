@@ -10,12 +10,13 @@
      用的是与**主题最终方案（PLAN.md 阶段 8.10）完全一致**的 CSS 关键值：
        header   sticky top-0  + h-14   -> 3.5rem / 56px
        aside    position: fixed
-                top: 7rem              -> 112px = header 56px + 容器 py-10 40px + 呼吸 16px
+                top: 6rem              -> 96px = header 56px + 容器 py-10 40px
                 left: calc(...)        -> 复刻主题里"居中 grid 列"的公式
-                max-height calc(100vh - 7rem - 1.5rem)
+                max-height calc(100vh - 6rem - 1.5rem)
                 overflow-y auto
-     ⚠️ 注意 top 是 7rem 而不是 4.5rem：fixed 脱离文档流后不再享受容器的 py-10 上内边距，
-        必须自己把那 2.5rem 补回来，否则会比改动前偏上 24px。
+     ⚠️ 注意 top 是 6rem：fixed 脱离文档流后不再享受容器的 py-10 上内边距，必须自己补回来。
+        补的**只有** py-10 那 2.5rem —— **不要再额外加"呼吸间距"**：
+        96px 这个落点本身就含 header(56) 到卡片(40px) 的净间距，已经够了。
      页面刻意做得比视口长（左侧塞很多卡片），方便滚动观察。
      ------------------------------------------------------------------ */
   * { box-sizing: border-box; }
@@ -80,12 +81,12 @@
         与真实页一致（否则会破坏 fixed 的包含块）。 */
   .aside-fixed {
     position: fixed;
-    top: 7rem;                                  /* = header 3.5rem + 容器 py-10 2.5rem + 呼吸 1rem */
+    top: 6rem;                                  /* = header 3.5rem + 容器 py-10 2.5rem = 96px */
     --aside-pad: 1.5rem;
     --aside-inner: calc(min(100vw, 68rem) - 2 * var(--aside-pad));
     left: calc(max(0px, (100vw - 68rem) / 2) + var(--aside-inner) - 270px);
     width: 270px;
-    max-height: calc(100vh - 7rem - 1.5rem);    /* 视口高 − 固定位 − 底部留白 */
+    max-height: calc(100vh - 6rem - 1.5rem);    /* 视口高 − 固定位 − 底部留白 */
     overflow-y: auto;
     z-index: 20;
     display: flex;
@@ -158,7 +159,7 @@
       <h4>验证要点</h4>
       <ul>
         <li>往下滚 → 右侧<b>完全不动</b>（`position: fixed`）</li>
-        <li>顶部落点 = header 56px + 容器 py-10 40px → <b>与改动前完全一致</b></li>
+        <li>顶部落点 = header 56px + 容器 py-10 40px = 96px → <b>与改动前完全一致</b></li>
         <li>水平位置对齐左列右侧（`left` 公式复刻主题）</li>
         <li>右侧内容比视口高时 → <b>它自己内部滚</b>，不影响整页</li>
       </ul>
