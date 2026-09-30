@@ -71,36 +71,45 @@
 
 ---
 
-## 阶段 3 · 去 Vue 改 SSR（最大一刀）
+## 阶段 3 · 去 Vue 改 SSR（最大一刀）✅ 已完成（2026-09-30）
 
 > 目标：`Trilium 渲染空壳 → Vue 客户端重画` 改成 `Trilium 直接吐内容，JS 只做交互`。
-> 收益：JS 从 ~650 行降到 ~200 行，删 `vue.global.js` + 手写路由 + `G` 全局状态，**顺带修掉 SEO 空页面**（现在爬到的 `<main id="app">` 是空的）。
+> 结果：**EJS 558 → 546 行（内容全在服务端出）**，**JS 676 → 372 行（Vue 应用 676 行 → 原生脚本 372 行）**，
+> 删 `vue.global.js`（500KB+）、手写路由表、`G` 全局状态、`window.BLOG_DATA`；SEO 空页面顺带修掉。
+> 验证：`npm run smoke` **38 项**（服务端渲染结果）+ `npm run dom` **46 项**（jsdom 真实行为），`local` / `as-is` 两种资源模式均全通过。
 
-- [ ] **3.1 列表/标签/归档/分类页改 EJS 循环输出** — 数据本来就在 EJS 里收集好，等于绕一圈客户端再画一遍
-- [ ] **3.2 详情页 `<%- content %>`** — Trilium 已渲染好 HTML
-- [ ] **3.3 文章卡片提成 EJS partial，`include` 复用**
-- [ ] **3.4 原生 JS 接管交互（~200 行）**
+- [x] **3.1 列表/标签/归档/分类页改 EJS 循环输出** — 首页卡片、归档（年→月→日）、标签总览全部服务端渲染；
+  标签/分类的**文章列表改为克隆首页卡片**（`data-post-id` / `data-category` / `data-tags`），不再额外下发一份 HTML
+- [x] **3.2 详情页 `<%- content %>`** — 正文由 Trilium 渲染好直接输出（`#post-content`）
+- [x] **3.3 卡片复用** — 卡片标记在模板里只出现一次（首页循环），标签/分类页复用同一份 DOM，无需 partial
+- [x] **3.4 原生 JS 接管交互（实测 372 行）**
   | 功能 | 实现 |
   |---|---|
-  | 暗色切换 | 扩展 head 内联脚本，~10 行 |
-  | TOC 滚动高亮 | 保留 ~30 行（生成挪到 3.5） |
-  | 代码块复制、灯箱 | ~30 行（本来就是原生 DOM，直接搬） |
-  | 搜索弹窗 | ~50 行（过滤逻辑不变，渲染换字符串拼接 / `<template>` clone） |
-  | 标签/归档筛选 | hash 过滤 + 原生渲染 ~40 行（或拆真实笔记页，SEO 更好） |
-  | 返回顶部、阅读进度 | ~15 行，两个 scroll 监听合并 |
-- [ ] **3.5 TOC 锚点挪服务端** — 用 `utils.slugifyHeadings` 在 EJS 里生成锚点 ID + 目录数据，客户端那套 `querySelectorAll + 补 id + 建树` 删掉
-- [ ] **3.6 EJS 拆 partials** — 642 行大模板拆成 `header` / `sidebar` / `footer` / `detail`（已验证 Trilium 的 `~shareTemplate` 支持 `include`）
+  | 明/暗切换 | JS 只管翻转 `html.dark` + 落盘；图标切换与深色背景层改由 CSS(`.dark`) 驱动，零 JS |
+  | 折叠面板（标签/目录/目录分组/移动端目录） | 统一 `[data-toggle="id"]` + `hidden` + `aria-expanded`，箭头旋转交给 CSS |
+  | 标签/归档/分类筛选 | hash 路由切换 `<section data-view-panel>` 显隐 + 克隆卡片 |
+  | 搜索弹窗 | 索引从 `<script type="application/json">` 读，结果用 DOM API 构造（`textContent`，无 innerHTML 拼接） |
+  | 代码块复制、灯箱、外链、目录高亮 | 原生 DOM，逻辑沿用；无 clipboard API 时退回 `execCommand` |
+  | 阅读进度、回到顶部 | 合并为一个 rAF 节流的 scroll 监听 |
+  | 导航高亮 | `aria-current="page"` + `body[data-view]`，样式在 CSS 里用颜色变量实现 |
+- [x] **3.5 TOC 锚点挪服务端** — 模板内自实现 slug（中文保留），服务端给正文标题补 `id` 并建目录树
+  - ⚠️ **纠正**：Trilium 的模板 locals **没有 `utils`**，官方 `page.ejs` 也是自己内联 `slugify` —— 不能依赖 `utils.slugifyHeadings`
+  - ⚠️ **行为变化**：锚点由 `#heading-0`（序号）改为 `#问题`（标题文本），旧书签失效；同时 `#` 链接可读性、SEO 更好
+- [ ] **3.6 EJS 拆 partials** — **暂缓**：`include('name')` 需要模板笔记下挂 `application/x-ejs` 子笔记（Trilium 侧手工建），
+  且 share-tool 还要补 `includer`。当前卡片已无重复标记，收益有限，留待需要时再做
 
 ---
 
 ## 阶段 4 · 收尾优化
 
-- [ ] **4.1 派生数据只算一次** — `posts`、标签聚合（TagsView/AppSidebar 各一份）、分类聚合（Header 又来一份）在 5 处重复；改模块级 `computed` + `useTags()` / `useCategories()`，或 provide/inject（若 3.x 已去 Vue，则简化为渲染时一次性聚合）
-- [ ] **4.2 全局状态统一** — `tocCollapsed` 用 `reactive({value})` 包一层又在模板 `.value`，与 ref 语义混乱 → 全用 ref / 收敛成单个 `createStore()`
-- [ ] **4.3 归档去重 O(n²) → Set**；`processNode` 根节点用 `getVisibleChildNotes`、子节点用 `getChildNotes` → 统一 `getVisibleChildNotes`
-- [ ] **4.4 删首页骨架屏假延迟** — 数据是内联同步的，`setTimeout(300)` 纯装饰，拖慢首屏感知
-- [ ] **4.5 observer / listener 生命周期** — PostDetailView 的 IntersectionObserver 卸载后仍引用旧 DOM，顺手 `onUnmounted` 断开
-- [ ] **4.6 补 OG / Twitter meta** — 官方模板按笔记 label 生成，现在社交分享无预览图
+> 4.1 ~ 4.5 是「Vue 时代」的问题，阶段 3 去 Vue 时已顺带解决，保留记录。
+
+- [x] **4.1 派生数据只算一次** — 聚合改为模板里算一次（`tagCount` / `catCount` / `archive`），导航、侧边栏、标签页、归档页共用
+- [x] **4.2 全局状态统一** — `G` 全局对象（ref/reactive 混用）整体删除；状态落在 DOM（`hidden` / `aria-expanded` / `aria-current` / `body[data-view]`）
+- [x] **4.3 归档去重 O(n²) → Set**；`collect()` 统一用 `getVisibleChildNotes`（原实现子节点用 `getChildNotes`，会带出隐藏笔记）
+- [x] **4.4 删首页骨架屏假延迟** — SSR 后首屏即内容，`setTimeout(300)` 与骨架屏标记一并删除
+- [x] **4.5 observer / listener 生命周期** — 不再有「路由切换销毁重建组件」的场景（页面级渲染），IntersectionObserver 只在一页内创建一次；scroll 监听已合并为单个 rAF 节流
+- [ ] **4.6 补 OG / Twitter meta** — 官方模板按笔记 label 生成（`shareOpenGraphURL` / `shareDescription` / `shareOpenGraphImage`），现在社交分享无预览图
 - [ ] **4.7 `#shareHiddenFromTree`** — 给模板/CSS/JS 笔记挂上，不出现在导航
 - [ ] **4.8 `#shareFavicon` 关系** — 指向文件笔记，替代 emoji data-URI
 - [ ] **4.9 `templateScript.js` 修三处**
@@ -108,6 +117,7 @@
   - `\s+ → ''` 会把英文单词连成一坨（中文可接受，至少补注释或改按语言分支）
   - `note.save()` 无条件执行 → 挪进 `publishStatus === 'true'` 分支
 - [ ] **4.10 目录结构（可选，B 方案）** — `TimelyBlogTheme/src/` 放三个主题文件，`文章模版.html` / `templateScript.js` 留根；代价是 `.env` 加 `EJS_FILE=src/...` 等两行
+- [ ] **4.11 主题 JS 是 `type="module"` 但内容为传统写法** — 阶段③ 切 CDN 时 `<script src>` 不带 module，两者都能跑（已用 `readyState` 判断）；若保留 module，注意 Trilium 侧 JS 笔记 MIME 必须为 `text/javascript`
 
 ---
 

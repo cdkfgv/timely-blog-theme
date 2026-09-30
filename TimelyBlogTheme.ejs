@@ -1,44 +1,24 @@
 <!DOCTYPE html>
 <html lang="zh-CN" class="dark transition-colors duration-200">
 <%
-// ==================== 数据准备 ====================
+/* ======================================================================
+   数据准备（全部在服务端完成）
+   模板只做「收集数据 → 输出 HTML」；客户端脚本只负责交互，不再渲染内容。
+   ====================================================================== */
 var rootNote = subRoot.note;
+var MAX_DEPTH = 5;
+var MONTHS = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
 
-var posts = [];
-function processNode(node, depth, maxDepth) {
-  if (depth > maxDepth) return;
-  if (node.getLabelValue('publish') === 'true' && !posts.some(p => p.id === node.noteId)) {
-    var dl = node.getLabelValue('blogDate');
-    posts.push({
-      id: node.noteId,
-      title: node.title,
-      date: dl ? dl.split('T')[0] : (node.dateCreated || '').split(' ')[0],
-      category: node.getLabelValue('blogCategory') || '',
-      summary: node.getLabelValue('blogSummary') || '',
-      tags: node.getLabelValues('blogTags') || [],
-      cover: node.getLabelValue('headerImage') || ''
-    });
-  }
-  if (node.hasChildren()) {
-    node.getChildNotes().forEach(child => processNode(child, depth + 1, maxDepth));
-  }
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-rootNote.getVisibleChildNotes().forEach(child => processNode(child, 1, 5));
-posts.sort((a, b) => b.date.localeCompare(a.date));
-// 固定页（shareAlias 命中即视为固定页）
-var fixedPages = ['about'];
-function isFixedPage(currNote) {
-  return fixedPages.indexOf(currNote.getLabelValue('shareAlias')) !== -1;
-}
+function enc(s) { return encodeURIComponent(String(s === null || s === undefined ? '' : s)); }
+/* 日期归一：ISO（含 T 或空格分隔）只取日期部分 */
+function dayOf(v) { return v ? String(v).replace(' ', 'T').split('T')[0] : ''; }
 
-// 内联 JSON 安全序列化：正文里一旦出现 </script>，会提前闭合 <script> 标签，
-// 导致 BLOG_DATA 被截断、剩余 JSON 泄漏成页面文本（SPA 整体失效）。
-// 在 JSON 字符串里把 < > & 转成 \u00XX 转义，语义完全等价且不再触发 HTML 解析。
-var JSON_ESCAPE = { '<': '\\u003c', '>': '\\u003e', '&': '\\u0026', '\u2028': '\\u2028', '\u2029': '\\u2029' };
-function safeJson(v) {
-  return JSON.stringify(typeof v === 'undefined' ? null : v)
-    .replace(/[<>&\u2028\u2029]/g, function (c) { return JSON_ESCAPE[c]; });
-}
+/* ---- 站点 / 博主：取分享根笔记上的标签 ---- */
 var site = {
   name: rootNote.getLabelValue('siteName') || 'Timely',
   description: rootNote.getLabelValue('siteDescription') || '极简技术博客',
@@ -52,43 +32,126 @@ var blogger = {
   email: rootNote.getLabelValue('bloggerEmail') || '',
   github: rootNote.getLabelValue('bloggerGithub') || ''
 };
-var isFixed = isFixedPage(note);
-var isPostPage = (note.noteId !== subRoot.note.noteId && note.getLabelValue('publish') === 'true') || isFixed;
+var avatarUrl = blogger.avatar || ('https://api.dicebear.com/7.x/avataaars/svg?seed=' + enc(blogger.name));
 
-var postDetail = null;
+/* ---- 固定页（shareAlias 命中即视为固定页）---- */
+var fixedPages = ['about'];
+function isFixedPage(n) { return fixedPages.indexOf(n.getLabelValue('shareAlias')) !== -1; }
+
+/* ---- 文章收集：可见子笔记递归；用 Set 去重（原实现是 O(n²) 的 Array.some）---- */
+var posts = [];
+var seenIds = Object.create(null);
+function collect(node, depth) {
+  if (depth > MAX_DEPTH) return;
+  if (node.getLabelValue('publish') === 'true' && !seenIds[node.noteId]) {
+    seenIds[node.noteId] = true;
+    posts.push({
+      id: node.shareId,
+      title: node.title,
+      date: dayOf(node.getLabelValue('blogDate')) || dayOf(node.utcDateModified),
+      category: node.getLabelValue('blogCategory') || '',
+      summary: node.getLabelValue('blogSummary') || '',
+      tags: node.getLabelValues('blogTags') || [],
+      cover: node.getLabelValue('headerImage') || ''
+    });
+  }
+  var children = node.getVisibleChildNotes();
+  for (var i = 0; i < children.length; i++) collect(children[i], depth + 1);
+}
+rootNote.getVisibleChildNotes().forEach(function (child) { collect(child, 1); });
+posts.sort(function (a, b) { return b.date.localeCompare(a.date); });
+
+/* ---- 标签 / 分类聚合：算一次，导航 / 侧边栏 / 标签页共用 ---- */
+var tagCount = Object.create(null);
+var catCount = Object.create(null);
+posts.forEach(function (p) {
+  (p.tags || []).forEach(function (t) { tagCount[t] = (tagCount[t] || 0) + 1; });
+  if (p.category) catCount[p.category] = (catCount[p.category] || 0) + 1;
+});
+var tagList = Object.keys(tagCount)
+  .sort(function (a, b) { return tagCount[b] - tagCount[a]; })
+  .map(function (n) { return { name: n, count: tagCount[n] }; });
+var catList = Object.keys(catCount).sort().map(function (n) { return { name: n, count: catCount[n] }; });
+
+/* ---- 归档分组：年 → 月 → 文章 ---- */
+var archive = [];
+(function () {
+  var byYear = Object.create(null);
+  posts.forEach(function (p) {
+    var d = new Date(p.date);
+    if (isNaN(d.getTime())) return;
+    var y = String(d.getFullYear());
+    if (!byYear[y]) byYear[y] = { months: Object.create(null), order: [] };
+    var m = d.getMonth();
+    if (!byYear[y].months[m]) { byYear[y].months[m] = []; byYear[y].order.push(m); }
+    byYear[y].months[m].push(p);
+  });
+  Object.keys(byYear).sort(function (a, b) { return Number(b) - Number(a); }).forEach(function (y) {
+    archive.push({
+      year: y,
+      months: byYear[y].order.map(function (m) {
+        return { name: MONTHS[m], posts: byYear[y].months[m] };
+      })
+    });
+  });
+})();
+
+/* ---- 当前页判定 ---- */
+var isRootPage = note.noteId === rootNote.noteId;
+var isFixed = isFixedPage(note);
+var isPostPage = (!isRootPage && note.getLabelValue('publish') === 'true') || isFixed;
+var postDate = dayOf(note.getLabelValue('blogDate')) || dayOf(note.utcDateModified);
+var postCategory = note.getLabelValue('blogCategory') || '';
+var postTags = note.getLabelValues('blogTags') || [];
+var postIdx = posts.findIndex(function (p) { return p.id === note.shareId; });
+var prevPost = postIdx > -1 && postIdx < posts.length - 1 ? posts[postIdx + 1] : null;
+var nextPost = postIdx > 0 ? posts[postIdx - 1] : null;
+
+/* ---- 服务端生成标题锚点 + 目录树（客户端不再解析 DOM）---- */
+var tocHeadings = [];
+var tocTree = [];
 if (isPostPage) {
-  var pd = note.getLabelValue('blogDate');
-  var idx = posts.findIndex(p => p.id === note.noteId);
-  postDetail = {
-    date: pd ? pd.split('T')[0] : (note.dateCreated || '').split(' ')[0],
-    category: note.getLabelValue('blogCategory') || '',
-    tags: note.getLabelValues('blogTags') || [],
-    prevPost: idx < posts.length - 1 ? posts[idx + 1] : null,
-    nextPost: idx > 0 ? posts[idx - 1] : null
-  };
+  var slugSeq = Object.create(null);
+  content = String(content || '').replace(/<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/gi, function (m, level, attrs, inner) {
+    var text = String(inner).replace(/<[^>]*>/g, '').trim();
+    var base = text.toLowerCase().replace(/[^\w\u4e00-\u9fa5]+/g, '-').replace(/^-+|-+$/g, '') || 'section';
+    var id = base;
+    if (slugSeq[id] === undefined) { slugSeq[id] = 0; } else { slugSeq[id]++; id = base + '-' + slugSeq[id]; }
+    tocHeadings.push({ id: id, text: text, level: Number(level), children: [] });
+    return '<h' + level + String(attrs).replace(/\s*id\s*=\s*"[^"]*"/i, '') + ' id="' + id + '">' + inner + '</h' + level + '>';
+  });
+}
+(function () {
+  var stack = [{ level: 0, children: tocTree }];
+  tocHeadings.forEach(function (h) {
+    while (stack.length > 1 && stack[stack.length - 1].level >= h.level) stack.pop();
+    stack[stack.length - 1].children.push(h);
+    stack.push(h);
+  });
+})();
+var tocCollapsed = tocTree.length > 10;
+
+/* ---- 搜索索引：只保留搜索用得到的字段（正文不再全量下发）---- */
+var searchIndex = posts.map(function (p) {
+  return { id: p.id, title: p.title, date: p.date, category: p.category, summary: p.summary, tags: p.tags };
+});
+
+/* ---- 内联 JSON 安全序列化：正文里出现 </script> 会提前闭合脚本块，
+       把 < > & U+2028 U+2029 转成 \u00XX 转义（语义等价，不再触发 HTML 解析）。---- */
+var JSON_ESCAPE = { '<': '\\u003c', '>': '\\u003e', '&': '\\u0026', '\u2028': '\\u2028', '\u2029': '\\u2029' };
+function safeJson(v) {
+  return JSON.stringify(v === undefined ? null : v)
+    .replace(/[<>&\u2028\u2029]/g, function (c) { return JSON_ESCAPE[c]; });
 }
 
+var year = new Date().getFullYear();
 %>
-
-<script>
-window.BLOG_DATA = {
-  site: <%- safeJson(site) %>,
-  blogger: <%- safeJson(blogger) %>,
-  posts: <%- safeJson(posts) %>,
-  isPostPage: <%= isPostPage %>,
-  postDetail: <%- safeJson(postDetail) %>,
-  content: <%- safeJson(typeof content !== 'undefined' ? content : '') %>,
-  noteTitle: <%- safeJson(typeof note !== 'undefined' ? note.title : '') %>,
-  fixedPages: <%- safeJson(fixedPages) %>,
-  isFixed: <%- safeJson(isFixed) %>
-};
-</script>
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><%= isPostPage ? note.title + ' - ' + site.name : site.name %></title>
-  <meta name="description" content="<%= site.description %>">
+  <title><%= isPostPage ? esc(note.title) + ' - ' + esc(site.name) : esc(site.name) %></title>
+  <meta name="description" content="<%= esc(site.description) %>">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%220.9em%22 font-size=%2290%22>🐠</text></svg>">
   <link rel="preconnect" href="https://cdn.jsdmirror.com" crossorigin>
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
@@ -113,8 +176,6 @@ window.BLOG_DATA = {
   <!-- 阶段③ 上线：启用下面两行，并注释掉上面的 shareCss / shareJs 引用
   <link href="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.css" rel="stylesheet">
   -->
-  <!-- Vue 3 运行时 + 编译器（支持模板字符串编译） -->
-  <script src="https://cdn.jsdmirror.com/npm/vue@3.5.13/dist/vue.global.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/jetbrains-mono@1.0.6/css/jetbrains-mono.min.css">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" rel="stylesheet" id="prism-light">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" id="prism-dark" disabled>
@@ -126,7 +187,7 @@ window.BLOG_DATA = {
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-go.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
-
+  <!-- 尽早决定明/暗，避免首屏闪白 -->
   <script>
     (function() {
       var saved = localStorage.getItem('theme');
@@ -137,419 +198,393 @@ window.BLOG_DATA = {
   </script>
 </head>
 
-<body class="min-h-screen bg-stone-50 dark:bg-zinc-950 dark:text-zinc-100 font-sans antialiased">
+<body class="min-h-screen bg-stone-50 dark:bg-zinc-950 dark:text-zinc-100 font-sans antialiased"
+      data-view="home" data-site-name="<%= esc(site.name) %>">
   <div class="fixed inset-0 -z-10 overflow-hidden">
     <div class="absolute inset-0 bg-gradient-to-br from-amber-50/60 via-stone-100/40 to-orange-50/40"></div>
     <div class="absolute top-0 left-1/4 w-96 h-96 bg-amber-200/30 rounded-full blur-3xl"></div>
     <div class="absolute top-1/4 right-1/4 w-80 h-80 bg-orange-200/20 rounded-full blur-3xl"></div>
     <div class="dark:hidden absolute bottom-1/4 left-1/3 w-72 h-72 bg-yellow-100/25 rounded-full blur-3xl"></div>
   </div>
-  <div id="dark-bg" class="hidden fixed inset-0 -z-10 overflow-hidden">
+  <div id="dark-bg" class="fixed inset-0 -z-10 overflow-hidden">
     <div class="absolute inset-0 bg-gradient-to-br from-amber-950/50 via-zinc-900/50 to-orange-950/40"></div>
     <div class="absolute top-0 left-1/4 w-96 h-96 bg-amber-600/8 rounded-full blur-3xl"></div>
     <div class="absolute top-1/4 right-1/4 w-80 h-80 bg-orange-500/6 rounded-full blur-3xl"></div>
     <div class="absolute bottom-1/4 left-1/3 w-72 h-72 bg-yellow-500/5 rounded-full blur-3xl"></div>
   </div>
-  <div id="app"></div>
 
-  <!-- ==================== Vue Templates ==================== -->
+  <div class="flex flex-col min-h-screen">
+    <div id="reading-progress" class="fixed top-0 left-0 h-0.5 bg-gradient-to-r from-amber-600 to-amber-400 dark:from-amber-500 dark:to-yellow-400 z-[9999] transition-all" style="width:0%"></div>
 
-  <template id="tpl-skeleton-item">
-    <div class="p-5 md:p-6 rounded-xl bg-white dark:bg-zinc-900/40 border border-stone-200 dark:border-zinc-800/50 animate-pulse">
-      <div class="h-5 bg-stone-200 dark:bg-zinc-800 rounded w-3/4 mb-3"></div>
-      <div class="h-4 bg-stone-100 dark:bg-zinc-800/60 rounded w-full mb-1.5"></div>
-      <div class="h-4 bg-stone-100 dark:bg-zinc-800/60 rounded w-5/6 mb-4"></div>
-      <div class="flex gap-3">
-        <div class="h-3 bg-stone-100 dark:bg-zinc-800/60 rounded w-20"></div>
-        <div class="h-3 bg-stone-100 dark:bg-zinc-800/60 rounded w-16"></div>
-      </div>
-    </div>
-  </template>
-
-  <template id="tpl-post-card">
-    <article class="group relative">
-      <div class="absolute -inset-px bg-gradient-to-r from-transparent via-stone-200 dark:via-zinc-800/20 to-transparent rounded-xl opacity-0 group-hover:opacity-100 -z-10 transition-opacity"></div>
-      <div class="relative p-5 md:p-6 rounded-xl bg-white/90 dark:bg-zinc-900/70 border border-[#f5f5f4] dark:border-zinc-700/50 hover:border-amber-200/50 dark:hover:border-amber-500/30 shadow-sm hover:shadow-amber-200/20 dark:shadow-amber-950/20 dark:hover:shadow-amber-500/10 transition-all duration-300">
-        <img v-if="cover" :src="cover" alt="" class="w-full h-40 object-cover rounded-lg mb-4" loading="lazy">
-        <h2 class="text-lg md:text-xl font-semibold text-stone-800 dark:text-zinc-100 mb-3 relative z-10">
-          <a :href="'/share/' + post.id" class="hover:text-amber-600 dark:hover:text-accent">{{ post.title }}</a>
-        </h2>
-        <p v-if="post.summary" class="text-sm text-stone-500 dark:text-zinc-400 mb-4 line-clamp-2">{{ post.summary }}</p>
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-stone-400 dark:text-zinc-500 relative z-10">
-          <span><i class="fa-regular fa-calendar text-xs mr-1"></i>{{ post.date }}</span>
-          <span v-if="post.category">
-            <a :href="'./#/category/' + encodeURIComponent(post.category)" class="px-2 py-0.5 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs hover:bg-amber-200 dark:hover:bg-accent/20">{{ post.category }}</a>
-          </span>
-          <span v-if="tagList.length" class="flex items-center gap-1 text-[12px] text-stone-400 dark:text-zinc-600">
-            <i class="fa-solid fa-tag"></i>
-            <template v-for="(t, i) in tagList" :key="t">
-              <a :href="'#/tag/' + encodeURIComponent(t)" class="hover:text-amber-600 dark:hover:text-accent">{{ t }}</a>
-              <span v-if="i < tagList.length - 1" class="text-stone-300 dark:text-zinc-600">·</span>
-            </template>
-          </span>
-        </div>
-      </div>
-    </article>
-  </template>
-
-  <template id="tpl-home-view">
-    <div class="space-y-4">
-      <div v-if="loading" class="space-y-4">
-        <skeleton-item v-for="n in 6" :key="n" />
-      </div>
-      <div v-else class="space-y-4">
-        <post-card v-for="p in posts" :key="p.id" :post="p" />
-      </div>
-    </div>
-  </template>
-
-  <template id="tpl-archive-view">
-    <div>
-      <div class="mb-8">
-        <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100 mb-2">归档</h1>
-        <p class="text-stone-400 dark:text-zinc-400">共 {{ posts.length }} 篇文章</p>
-      </div>
-      <div class="space-y-8">
-        <div v-for="(months, year) in yearsMap" :key="year">
-          <h2 class="text-xl font-bold text-stone-800 dark:text-zinc-100 mb-4 sticky top-14 bg-stone-100/90 dark:bg-zinc-900/60 dark:border-zinc-700/50 dark:py-2 dark:px-3 dark:rounded-lg z-10 backdrop-blur">{{ year }}</h2>
-          <div class="space-y-6">
-            <div v-for="(monthPosts, month) in months" :key="month">
-              <h3 class="text-sm font-medium text-stone-400 dark:text-zinc-400 mb-3">{{ MONTHS[month] }}</h3>
-              <div class="space-y-2">
-                <a v-for="p in monthPosts" :key="p.id" :href="'./' + p.id" class="flex items-center gap-4 py-2 px-3 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800/60 group">
-                  <span class="text-xs font-mono text-stone-400 dark:text-zinc-500 w-8">{{ String(new Date(p.date).getDate()).padStart(2, '0') }}</span>
-                  <span class="flex-1 text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100">{{ p.title }}</span>
-                  <span v-if="p.category" class="text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded hidden sm:inline">{{ p.category }}</span>
+    <!-- ==================== 顶部导航 ==================== -->
+    <header class="sticky top-0 z-50 h-14 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border-b border-[#f5f5f4] dark:border-zinc-700/50 shadow-sm dark:shadow-zinc-950/20">
+      <div class="max-w-[100rem] mx-auto px-5 sm:px-8 xl:px-10 h-full flex items-center justify-between">
+        <a href="./" class="flex items-center gap-2 text-base font-bold text-stone-800 dark:text-zinc-100 hover:text-amber-600 dark:hover:text-accent transition-colors">
+          <i class="fa-solid fa-terminal text-amber-600 dark:text-accent"></i>
+          <span><%= esc(site.name) %></span>
+        </a>
+        <div class="flex items-center gap-1">
+          <nav class="site-nav hidden md:flex items-center gap-0.5 mr-2">
+            <a href="./" data-nav="home" class="px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">首页</a>
+            <div class="relative" data-dropdown>
+              <button type="button" data-nav="category" data-dropdown-toggle aria-expanded="false" class="flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">
+                <span>分类</span><i class="fa-solid fa-chevron-down text-[10px]"></i>
+              </button>
+              <div data-dropdown-menu hidden class="absolute top-full left-0 mt-1 min-w-48 bg-white dark:bg-zinc-900 border border-[#f5f5f4] dark:border-zinc-700 rounded-xl shadow-lg py-2 z-50 max-h-80 overflow-y-auto">
+                <% if (catList.length) { catList.forEach(function (c) { %>
+                <a href="./#/category/<%= enc(c.name) %>" class="flex items-center justify-between px-3 py-2 mx-1 rounded-lg text-sm text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 hover:text-amber-600 dark:hover:text-accent group transition-colors">
+                  <span class="truncate flex-1 mr-2"><%= esc(c.name) %></span>
+                  <span class="text-xs font-medium px-1.5 py-0.5 rounded-full bg-stone-100 dark:bg-zinc-800 text-stone-400 dark:text-zinc-400 group-hover:bg-amber-100 group-hover:text-amber-600 dark:group-hover:bg-accent/10 dark:group-hover:text-accent transition-colors shrink-0"><%= c.count %></span>
                 </a>
+                <% }); } else { %>
+                <span class="block px-4 py-3 text-xs text-stone-400 dark:text-zinc-500">暂无分类</span>
+                <% } %>
               </div>
             </div>
-          </div>
+            <a href="./#/tags" data-nav="tags" class="px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">标签</a>
+            <a href="./#/archive" data-nav="archive" class="px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">归档</a>
+            <a href="./about" data-nav="about" class="px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">关于</a>
+          </nav>
+          <button type="button" data-search-open class="p-2 text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800 rounded-md transition-all">
+            <i class="fa-solid fa-magnifying-glass"></i>
+          </button>
+          <button type="button" id="theme-toggle" class="p-2 text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800 rounded-md transition-all">
+            <i class="fa-solid fa-moon i-moon"></i><i class="fa-solid fa-sun i-sun"></i>
+          </button>
         </div>
       </div>
-    </div>
-  </template>
+    </header>
 
-  <template id="tpl-tags-view">
-    <div>
-      <div class="mb-8">
-        <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100 mb-2">标签</h1>
-        <p class="text-stone-400 dark:text-zinc-400">共 {{ tags.length }} 个标签</p>
-      </div>
-      <div class="flex flex-wrap gap-3">
-        <a v-for="t in tags" :key="t.name" :href="'#/tag/' + encodeURIComponent(t.name)"
-           class="group inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900/60 border border-[#f5f5f4] dark:border-zinc-700 rounded-xl text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent hover:border-amber-300 dark:hover:border-amber-500/50 transition-colors">
-          <i class="fa-solid fa-tag text-xs text-stone-400 dark:text-zinc-500 group-hover:text-amber-600 dark:group-hover:text-accent"></i>
-          <span>{{ t.name }}</span>
-          <span class="text-xs px-1.5 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-full text-stone-400 dark:text-zinc-400">{{ t.count }}</span>
-        </a>
-      </div>
-    </div>
-  </template>
+    <!-- ==================== 主体 ==================== -->
+    <div class="flex-1 flex flex-col max-w-[100rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14">
+      <div class="flex-1 grid lg:grid-cols-[1fr_270px] lg:items-start gap-10 xl:gap-12">
+        <main id="main" class="min-w-0">
+<% if (isPostPage) { %>
 
-  <template id="tpl-tag-view">
-    <div>
-      <div class="mb-6">
-        <div class="flex items-center gap-3 mb-2">
-          <i class="fa-solid fa-tag text-amber-600 dark:text-accent"></i>
-          <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100">标签：{{ tag }}</h1>
-        </div>
-        <p class="text-stone-400 dark:text-zinc-400">共 {{ filtered.length }} 篇文章</p>
-        <a href="#/tags" class="inline-flex items-center gap-1 mt-3 text-sm text-stone-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent">
-          <i class="fa-solid fa-arrow-left text-xs"></i>所有标签
-        </a>
-      </div>
-      <div class="space-y-4">
-        <post-card v-for="p in filtered" :key="p.id" :post="p" />
-      </div>
-    </div>
-  </template>
+          <!-- ========== 文章详情 ========== -->
+          <div class="dark:bg-zinc-900/50 rounded-xl">
+            <article>
+              <% if (!isFixed) { %>
+              <header class="mb-8 pb-6 border-b border-stone-200 dark:border-zinc-800">
+                <h1 class="text-2xl md:text-3xl font-bold text-stone-800 dark:text-zinc-100 mb-4 leading-tight"><%= esc(note.title) %></h1>
+                <div class="flex flex-wrap items-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
+                  <span><i class="fa-regular fa-calendar mr-1"></i><%= esc(postDate) %></span>
+                  <% if (postCategory) { %>
+                  <a href="./#/category/<%= enc(postCategory) %>" class="px-2 py-1 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs font-medium"><%= esc(postCategory) %></a>
+                  <% } %>
+                  <% if (postTags.length) { %>
+                  <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-tags text-xs"></i>
+                    <% postTags.forEach(function (t) { %>
+                    <a href="./#/tag/<%= enc(t) %>" class="text-xs text-stone-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent"><%= esc(t) %></a>
+                    <% }); %>
+                  </div>
+                  <% } %>
+                </div>
+              </header>
+              <% } %>
 
-  <template id="tpl-category-view">
-    <div>
-      <div class="mb-6">
-        <div class="flex items-center gap-3 mb-2">
-          <i class="fa-solid fa-folder text-amber-600 dark:text-accent"></i>
-          <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100">分类：{{ cat }}</h1>
-        </div>
-        <p class="text-stone-400 dark:text-zinc-400">共 {{ filtered.length }} 篇文章</p>
-      </div>
-      <div class="space-y-4">
-        <post-card v-for="p in filtered" :key="p.id" :post="p" />
-      </div>
-    </div>
-  </template>
-
-  <template id="tpl-about-view">
-    <div class="space-y-6">
-      <div class="p-6 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50">
-        <div class="flex items-start gap-6">
-          <img :src="blogger.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(blogger.name)" class="w-20 h-20 rounded-full border-2 border-stone-200 dark:border-zinc-700" alt="avatar">
-          <div>
-            <h2 class="text-xl font-bold text-stone-800 dark:text-zinc-100 mb-2">{{ blogger.name }}</h2>
-            <p class="text-stone-500 dark:text-zinc-400">{{ blogger.bio }}</p>
-          </div>
-        </div>
-      </div>
-      <div class="p-6 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50">
-        <h2 class="text-lg font-bold text-stone-800 dark:text-zinc-100 mb-4 flex items-center gap-2">
-          <i class="fa-solid fa-code text-amber-600 dark:text-accent"></i>技术栈
-        </h2>
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <div v-for="s in blogger.techStack" :key="s" class="flex items-center gap-2 p-3 rounded-lg bg-stone-50 dark:bg-zinc-800/50">
-            <i class="fa-solid fa-check text-amber-600 dark:text-accent text-sm"></i>
-            <span class="text-stone-600 dark:text-zinc-300">{{ s }}</span>
-          </div>
-        </div>
-      </div>
-      <div v-if="blogger.github || blogger.email" class="p-6 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50">
-        <h2 class="text-lg font-bold text-stone-800 dark:text-zinc-100 mb-4 flex items-center gap-2">
-          <i class="fa-solid fa-link text-amber-600 dark:text-accent"></i>联系方式
-        </h2>
-        <div class="flex flex-wrap gap-3">
-          <a v-if="blogger.github" :href="blogger.github" target="_blank" rel="noopener"
-             class="flex items-center gap-2 px-4 py-2 bg-stone-100 dark:bg-zinc-800 rounded-lg hover:bg-stone-200 dark:hover:bg-zinc-700 transition-colors">
-            <i class="fa-brands fa-github text-lg"></i><span>GitHub</span>
-          </a>
-          <a v-if="blogger.email" :href="'mailto:' + blogger.email"
-             class="flex items-center gap-2 px-4 py-2 bg-stone-100 dark:bg-zinc-800 rounded-lg hover:bg-stone-200 dark:hover:bg-zinc-700 transition-colors">
-            <i class="fa-solid fa-envelope text-lg"></i><span>{{ blogger.email }}</span>
-          </a>
-        </div>
-      </div>
-    </div>
-  </template>
-
-  <template id="tpl-not-found-view">
-    <div class="text-center py-24">
-      <div class="text-8xl font-bold text-stone-200 dark:text-zinc-800 mb-4">404</div>
-      <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100 mb-3">页面不存在</h1>
-      <p class="text-stone-500 dark:text-zinc-400 mb-8">你访问的页面已失效或不存在</p>
-      <a href="./#/" class="inline-flex items-center gap-2 px-6 py-3 bg-amber-600 dark:bg-accent text-white dark:text-zinc-900 rounded-xl hover:bg-amber-700 dark:hover:bg-amber-500 font-medium transition-colors">
-        <i class="fa-solid fa-house"></i>返回首页
-      </a>
-    </div>
-  </template>
-
-  <template id="tpl-app-header">
-    <div>
-      <header class="sticky top-0 z-50 h-14 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border-b border-[#f5f5f4] dark:border-zinc-700/50 shadow-sm dark:shadow-zinc-950/20">
-        <div class="max-w-[100rem] mx-auto px-5 sm:px-8 xl:px-10 h-full flex items-center justify-between">
-          <a href="./" class="flex items-center gap-2 text-base font-bold text-stone-800 dark:text-zinc-100 hover:text-amber-600 dark:hover:text-accent transition-colors">
-            <i class="fa-solid fa-terminal text-amber-600 dark:text-accent"></i>
-            <span>{{ site.name }}</span>
-          </a>
-          <div class="flex items-center gap-1">
-            <nav class="hidden md:flex items-center gap-0.5 mr-2">
-              <a href="./" :class="['px-3 py-1.5 text-sm font-medium rounded-md transition-all', routeName === 'home' ? 'text-stone-800 dark:text-zinc-100 bg-stone-100 dark:bg-zinc-800' : 'text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800']">首页</a>
-              <div class="relative">
-                <button @click.stop="catOpen = !catOpen" :class="['flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-md transition-all', routeName === 'category' ? 'text-stone-800 dark:text-zinc-100 bg-stone-100 dark:bg-zinc-800' : 'text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800']">
-                  <span>分类</span><i class="fa-solid fa-chevron-down text-[10px]"></i>
+              <% if (tocHeadings.length > 1) { %>
+              <div class="lg:hidden mb-6">
+                <button type="button" id="mtoc-toggle" data-toggle="mtoc-panel" aria-expanded="false" class="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50 text-sm text-stone-600 dark:text-zinc-300">
+                  <span><i class="fa-solid fa-list mr-2"></i>文章目录</span>
+                  <i class="fa-solid fa-chevron-down text-xs transition-transform i-chevron-180"></i>
                 </button>
-                <div v-if="catOpen" class="absolute top-full left-0 mt-1 min-w-48 bg-white dark:bg-zinc-900 border border-[#f5f5f4] dark:border-zinc-700 rounded-xl shadow-lg py-2 z-50 max-h-80 overflow-y-auto">
-                  <template v-if="cats.length">
-                    <a v-for="c in cats" :key="c.name" :href="'./#/category/' + encodeURIComponent(c.name)" @click="catOpen = false"
-                       class="flex items-center justify-between px-3 py-2 mx-1 rounded-lg text-sm text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 hover:text-amber-600 dark:hover:text-accent group transition-colors">
-                      <span class="truncate flex-1 mr-2">{{ c.name }}</span>
-                      <span class="text-xs font-medium px-1.5 py-0.5 rounded-full bg-stone-100 dark:bg-zinc-800 text-stone-400 dark:text-zinc-400 group-hover:bg-amber-100 group-hover:text-amber-600 dark:group-hover:bg-accent/10 dark:group-hover:text-accent transition-colors shrink-0">{{ c.count }}</span>
-                    </a>
-                  </template>
-                  <span v-else class="block px-4 py-3 text-xs text-stone-400 dark:text-zinc-500">暂无分类</span>
+                <div id="mtoc-panel" hidden class="toc-drawer open mt-2 p-4 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50 max-h-60 overflow-y-auto">
+                  <% tocTree.forEach(function (h) { %>
+                  <a href="#<%= h.id %>" data-toc-jump="<%= h.id %>" data-toc-mirror="<%= h.id %>" class="toc-link block text-sm py-1 text-stone-400 dark:text-zinc-400"><%= esc(h.text) %></a>
+                  <% h.children.forEach(function (c) { %>
+                  <a href="#<%= c.id %>" data-toc-jump="<%= c.id %>" data-toc-mirror="<%= c.id %>" class="toc-link block text-sm py-1 pl-4 text-stone-400 dark:text-zinc-400"><%= esc(c.text) %></a>
+                  <% }); %>
+                  <% }); %>
                 </div>
               </div>
-              <a href="./#/tags" :class="['px-3 py-1.5 text-sm font-medium rounded-md transition-all', routeName === 'tags' || routeName === 'tag' ? 'text-stone-800 dark:text-zinc-100 bg-stone-100 dark:bg-zinc-800' : 'text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800']">标签</a>
-              <a href="./#/archive" :class="['px-3 py-1.5 text-sm font-medium rounded-md transition-all', routeName === 'archive' ? 'text-stone-800 dark:text-zinc-100 bg-stone-100 dark:bg-zinc-800' : 'text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800']">归档</a>
-              <a href="./about" :class="['px-3 py-1.5 text-sm font-medium rounded-md transition-all', routeName === 'about' ? 'text-stone-800 dark:text-zinc-100 bg-stone-100 dark:bg-zinc-800' : 'text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800']">关于</a>
-            </nav>
-            <button @click="$emit('toggle-search')" class="p-2 text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800 rounded-md transition-all">
-              <i class="fa-solid fa-magnifying-glass"></i>
-            </button>
-            <button @click="toggleTheme" class="p-2 text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800 rounded-md transition-all">
-              <i :class="isDarkMode ? 'fa-solid fa-sun' : 'fa-solid fa-moon'"></i>
-            </button>
-          </div>
-        </div>
-      </header>
-      <nav class="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-zinc-900 border-t border-[#f5f5f4] dark:border-zinc-800 flex justify-around py-2">
-        <a href="./" :class="['flex flex-col items-center gap-0.5 px-4 py-1 text-xs', routeName === 'home' ? 'text-amber-600 dark:text-accent' : 'text-stone-500 dark:text-zinc-400']"><i class="fa-solid fa-house text-sm"></i><span>首页</span></a>
-        <a href="./#/archive" :class="['flex flex-col items-center gap-0.5 px-4 py-1 text-xs', routeName === 'archive' ? 'text-amber-600 dark:text-accent' : 'text-stone-500 dark:text-zinc-400']"><i class="fa-solid fa-folder text-sm"></i><span>归档</span></a>
-        <a href="./#/tags" :class="['flex flex-col items-center gap-0.5 px-4 py-1 text-xs', routeName === 'tags' || routeName === 'tag' ? 'text-amber-600 dark:text-accent' : 'text-stone-500 dark:text-zinc-400']"><i class="fa-solid fa-tags text-sm"></i><span>标签</span></a>
-        <a href="./about" :class="['flex flex-col items-center gap-0.5 px-4 py-1 text-xs', routeName === 'about' ? 'text-amber-600 dark:text-accent' : 'text-stone-500 dark:text-zinc-400']"><i class="fa-solid fa-user text-sm"></i><span>关于</span></a>
-      </nav>
-    </div>
-  </template>
+              <% } %>
 
-  <template id="tpl-app-sidebar">
-    <aside class="hidden lg:block sticky top-[2.5rem] self-start w-[270px] shrink-0 space-y-4">
-      <!-- 博主信息（始终显示） -->
-      <div class="p-5 rounded-xl bg-white dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/50">
-        <div class="flex items-start gap-3 mb-4">
-          <img :src="blogger.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(blogger.name)" class="w-14 h-14 rounded-full border-2 border-stone-200 dark:border-zinc-700 shrink-0" alt="avatar">
-          <div class="min-w-0">
-            <h3 class="text-base font-bold text-stone-800 dark:text-zinc-100 truncate">{{ blogger.name }}</h3>
-            <p class="text-xs text-amber-600 dark:text-accent mt-0.5 truncate">{{ blogger.motto }}</p>
-          </div>
-        </div>
-        <p class="text-xs text-stone-500 dark:text-zinc-400 leading-relaxed">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{{ blogger.bio }}</p>
-        <div class="flex items-center justify-center gap-4 pt-3 border-t border-stone-200 dark:border-zinc-800/50">
-          <a v-if="blogger.github" :href="blogger.github" target="_blank" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-brands fa-github text-base"></i></a>
-          <a v-if="blogger.email" :href="'mailto:' + blogger.email" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-solid fa-envelope text-base"></i></a>
-          <a href="/rss.xml" target="_blank" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-solid fa-rss text-base"></i></a>
-        </div>
-      </div>
-      <!-- 标签列表 -->
-      <div v-if="!(G.isPostPage && G.tocHeadings.length > 1)" class="rounded-xl bg-white dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/50 overflow-hidden">
-        <button @click="tagsOpen = !tagsOpen" class="w-full flex items-center justify-between px-4 py-3 text-left">
-          <div class="flex items-center gap-2">
-            <i class="fa-solid fa-tags text-stone-400 dark:text-zinc-500 text-sm"></i>
-            <span class="text-xs font-semibold text-stone-700 dark:text-zinc-200">标签</span>
-          </div>
-          <i :style="{ transform: tagsOpen ? 'rotate(180deg)' : '' }" class="fa-solid fa-chevron-down text-stone-400 dark:text-zinc-500 text-[10px] transition-transform"></i>
-        </button>
-        <div v-show="tagsOpen" class="border-t border-stone-100 dark:border-zinc-800/50 px-4 py-3">
-          <div class="flex flex-wrap gap-1.5">
-            <a v-for="t in tagList" :key="t.name" :href="'./#/tag/' + encodeURIComponent(t.name)"
-               :class="['text-xs px-2.5 py-1 rounded-full transition-colors', G.route.params.tag === t.name ? 'bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent' : 'bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent']">
-              {{ t.name }} <span class="text-stone-400 dark:text-zinc-400">{{ t.count }}</span>
-            </a>
-          </div>
-        </div>
-      </div>
-      <!-- 文章目录（仅详情页显示） -->
-      <div v-if="G.isPostPage && G.tocHeadings.length > 1" class="rounded-xl bg-white dark:bg-zinc-900/60 border border-[#f5f5f4] dark:border-zinc-800/50 overflow-hidden">
-        <div class="px-4 py-3 border-b border-stone-100 dark:border-zinc-800/50 flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <i class="fa-solid fa-list text-stone-400 dark:text-zinc-500 text-sm"></i>
-            <span class="text-xs font-semibold text-stone-700 dark:text-zinc-200">目录</span>
-          </div>
-          <button @click="G.tocCollapsed.value = !G.tocCollapsed.value" class="p-1 text-stone-400 dark:text-zinc-500 hover:text-amber-600 dark:hover:text-accent transition-colors">
-            <i :class="['fa-solid text-xs transition-transform', G.tocCollapsed.value ? 'fa-plus' : 'fa-minus']"></i>
-          </button>
-        </div>
-        <div v-show="!G.tocCollapsed.value" class="px-4 py-3">
-          <template v-for="h in G.tocTree" :key="h.id">
-            <div>
-              <div class="flex items-center gap-1">
-                <a :href="'#' + h.id" @click.prevent="scrollTo(h.id)" :class="['text-sm py-1 transition-colors flex-1', h.active ? 'text-amber-600 dark:text-accent font-medium' : 'text-stone-400 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent']">
-                  {{ h.text }}
+              <div id="post-content" class="prose-content min-h-[17dvh]"><%- content %></div>
+
+              <% if (!isFixed) { %>
+              <nav class="grid grid-cols-2 gap-4 mt-10 pt-6 border-t border-[#f5f5f4] dark:border-zinc-800">
+                <% if (prevPost) { %>
+                <a href="./<%= esc(prevPost.id) %>" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl">
+                  <div class="text-xs text-stone-400 dark:text-zinc-500 mb-2"><i class="fa-solid fa-arrow-left"></i> 上一篇</div>
+                  <div class="text-sm font-medium text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100 line-clamp-2"><%= esc(prevPost.title) %></div>
                 </a>
-                <button v-if="h.children.length" @click="h.collapsed = !h.collapsed" class="p-0.5 text-stone-400 dark:text-zinc-500 hover:text-amber-600 dark:hover:text-accent transition-colors">
-                  <i :class="['fa-solid fa-chevron-right text-[8px] transition-transform', h.collapsed ? '' : 'rotate-90']"></i>
-                </button>
+                <% } else { %>
+                <div class="p-4 rounded-xl border border-dashed border-[#f5f5f4] dark:border-zinc-800 flex items-center justify-center text-sm text-stone-400 dark:text-zinc-600">已是最新一篇</div>
+                <% } %>
+                <% if (nextPost) { %>
+                <a href="./<%= esc(nextPost.id) %>" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl text-right">
+                  <div class="text-xs text-stone-400 dark:text-zinc-500 mb-2">下一篇 <i class="fa-solid fa-arrow-right"></i></div>
+                  <div class="text-sm font-medium text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100 line-clamp-2"><%= esc(nextPost.title) %></div>
+                </a>
+                <% } else { %>
+                <div class="p-4 rounded-xl border border-dashed border-[#f5f5f4] dark:border-zinc-800 flex items-center justify-center text-sm text-stone-400 dark:text-zinc-600">已是最后一篇</div>
+                <% } %>
+              </nav>
+              <% } %>
+            </article>
+          </div>
+<% } else { %>
+
+          <!-- ========== 首页：文章列表 ========== -->
+          <section data-view-panel="home">
+            <div class="space-y-4">
+              <% posts.forEach(function (p) { %>
+              <article data-post-id="<%= esc(p.id) %>" data-category="<%= esc(p.category) %>" data-tags="<%= esc((p.tags || []).join('|')) %>" class="group relative">
+                <div class="absolute -inset-px bg-gradient-to-r from-transparent via-stone-200 dark:via-zinc-800/20 to-transparent rounded-xl opacity-0 group-hover:opacity-100 -z-10 transition-opacity"></div>
+                <div class="relative p-5 md:p-6 rounded-xl bg-white/90 dark:bg-zinc-900/70 border border-[#f5f5f4] dark:border-zinc-700/50 hover:border-amber-200/50 dark:hover:border-amber-500/30 shadow-sm hover:shadow-amber-200/20 dark:shadow-amber-950/20 dark:hover:shadow-amber-500/10 transition-all duration-300">
+                  <% if (/^https?:\/\//i.test(p.cover)) { %>
+                  <img src="<%= esc(p.cover) %>" alt="" class="w-full h-40 object-cover rounded-lg mb-4" loading="lazy">
+                  <% } %>
+                  <h2 class="text-lg md:text-xl font-semibold text-stone-800 dark:text-zinc-100 mb-3 relative z-10">
+                    <a href="./<%= esc(p.id) %>" class="hover:text-amber-600 dark:hover:text-accent"><%= esc(p.title) %></a>
+                  </h2>
+                  <% if (p.summary) { %>
+                  <p class="text-sm text-stone-500 dark:text-zinc-400 mb-4 line-clamp-2"><%= esc(p.summary) %></p>
+                  <% } %>
+                  <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-stone-400 dark:text-zinc-500 relative z-10">
+                    <span><i class="fa-regular fa-calendar text-xs mr-1"></i><%= esc(p.date) %></span>
+                    <% if (p.category) { %>
+                    <span>
+                      <a href="./#/category/<%= enc(p.category) %>" class="px-2 py-0.5 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs hover:bg-amber-200 dark:hover:bg-accent/20"><%= esc(p.category) %></a>
+                    </span>
+                    <% } %>
+                    <% var cardTags = (p.tags || []).slice(0, 3); %>
+                    <% if (cardTags.length) { %>
+                    <span class="flex items-center gap-1 text-[12px] text-stone-400 dark:text-zinc-600">
+                      <i class="fa-solid fa-tag"></i>
+                      <% cardTags.forEach(function (t, ti) { %>
+                      <a href="./#/tag/<%= enc(t) %>" class="hover:text-amber-600 dark:hover:text-accent"><%= esc(t) %></a>
+                      <% if (ti < cardTags.length - 1) { %><span class="text-stone-300 dark:text-zinc-600">·</span><% } %>
+                      <% }); %>
+                    </span>
+                    <% } %>
+                  </div>
+                </div>
+              </article>
+              <% }); %>
+            </div>
+          </section>
+
+          <!-- ========== 归档（hash 路由 #/archive）========== -->
+          <section data-view-panel="archive" hidden>
+            <div class="mb-8">
+              <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100 mb-2">归档</h1>
+              <p class="text-stone-400 dark:text-zinc-400">共 <%= posts.length %> 篇文章</p>
+            </div>
+            <div class="space-y-8">
+              <% archive.forEach(function (y) { %>
+              <div>
+                <h2 class="text-xl font-bold text-stone-800 dark:text-zinc-100 mb-4 sticky top-14 bg-stone-100/90 dark:bg-zinc-900/60 dark:border-zinc-700/50 dark:py-2 dark:px-3 dark:rounded-lg z-10 backdrop-blur"><%= y.year %></h2>
+                <div class="space-y-6">
+                  <% y.months.forEach(function (m) { %>
+                  <div>
+                    <h3 class="text-sm font-medium text-stone-400 dark:text-zinc-400 mb-3"><%= m.name %></h3>
+                    <div class="space-y-2">
+                      <% m.posts.forEach(function (p) { %>
+                      <a href="./<%= esc(p.id) %>" class="flex items-center gap-4 py-2 px-3 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800/60 group">
+                        <span class="text-xs font-mono text-stone-400 dark:text-zinc-500 w-8"><%= String(new Date(p.date).getDate()).padStart(2, '0') %></span>
+                        <span class="flex-1 text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100"><%= esc(p.title) %></span>
+                        <% if (p.category) { %>
+                        <span class="text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded hidden sm:inline"><%= esc(p.category) %></span>
+                        <% } %>
+                      </a>
+                      <% }); %>
+                    </div>
+                  </div>
+                  <% }); %>
+                </div>
               </div>
-              <div v-if="h.children.length && !h.collapsed" class="pl-4 border-l border-stone-200 dark:border-zinc-700/50 ml-1">
-                <a v-for="c in h.children" :key="c.id" :href="'#' + c.id" @click.prevent="scrollTo(c.id)" :class="['flex items-center gap-1 text-sm py-1 transition-colors', c.active ? 'text-amber-600 dark:text-accent font-medium' : 'text-stone-400 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent']">
-                  {{ c.text }}
-                </a>
+              <% }); %>
+            </div>
+          </section>
+
+          <!-- ========== 标签总览（#/tags）========== -->
+          <section data-view-panel="tags" hidden>
+            <div class="mb-8">
+              <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100 mb-2">标签</h1>
+              <p class="text-stone-400 dark:text-zinc-400">共 <%= tagList.length %> 个标签</p>
+            </div>
+            <div class="flex flex-wrap gap-3">
+              <% tagList.forEach(function (t) { %>
+              <a href="./#/tag/<%= enc(t.name) %>" class="group inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900/60 border border-[#f5f5f4] dark:border-zinc-700 rounded-xl text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent hover:border-amber-300 dark:hover:border-amber-500/50 transition-colors">
+                <i class="fa-solid fa-tag text-xs text-stone-400 dark:text-zinc-500 group-hover:text-amber-600 dark:group-hover:text-accent"></i>
+                <span><%= esc(t.name) %></span>
+                <span class="text-xs px-1.5 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-full text-stone-400 dark:text-zinc-400"><%= t.count %></span>
+              </a>
+              <% }); %>
+            </div>
+          </section>
+
+          <!-- ========== 标签文章列表（#/tag/:name，列表由首页卡片克隆）========== -->
+          <section data-view-panel="tag" hidden>
+            <div class="mb-6">
+              <div class="flex items-center gap-3 mb-2">
+                <i class="fa-solid fa-tag text-amber-600 dark:text-accent"></i>
+                <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100">标签：<span data-filter-name></span></h1>
+              </div>
+              <p class="text-stone-400 dark:text-zinc-400">共 <span data-filter-count>0</span> 篇文章</p>
+              <a href="./#/tags" class="inline-flex items-center gap-1 mt-3 text-sm text-stone-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent">
+                <i class="fa-solid fa-arrow-left text-xs"></i>所有标签
+              </a>
+            </div>
+            <div class="space-y-4" data-filter-list></div>
+          </section>
+
+          <!-- ========== 分类文章列表（#/category/:name）========== -->
+          <section data-view-panel="category" hidden>
+            <div class="mb-6">
+              <div class="flex items-center gap-3 mb-2">
+                <i class="fa-solid fa-folder text-amber-600 dark:text-accent"></i>
+                <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100">分类：<span data-filter-name></span></h1>
+              </div>
+              <p class="text-stone-400 dark:text-zinc-400">共 <span data-filter-count>0</span> 篇文章</p>
+            </div>
+            <div class="space-y-4" data-filter-list></div>
+          </section>
+
+          <!-- ========== 404 ========== -->
+          <section data-view-panel="notfound" hidden>
+            <div class="text-center py-24">
+              <div class="text-8xl font-bold text-stone-200 dark:text-zinc-800 mb-4">404</div>
+              <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100 mb-3">页面不存在</h1>
+              <p class="text-stone-500 dark:text-zinc-400 mb-8">你访问的页面已失效或不存在</p>
+              <a href="./#/" class="inline-flex items-center gap-2 px-6 py-3 bg-amber-600 dark:bg-accent text-white dark:text-zinc-900 rounded-xl hover:bg-amber-700 dark:hover:bg-amber-500 font-medium transition-colors">
+                <i class="fa-solid fa-house"></i>返回首页
+              </a>
+            </div>
+          </section>
+<% } %>
+        </main>
+
+        <!-- ==================== 侧边栏 ==================== -->
+        <aside class="hidden lg:block sticky top-[2.5rem] self-start w-[270px] shrink-0 space-y-4">
+          <div class="p-5 rounded-xl bg-white dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/50">
+            <div class="flex items-start gap-3 mb-4">
+              <img src="<%= esc(avatarUrl) %>" class="w-14 h-14 rounded-full border-2 border-stone-200 dark:border-zinc-700 shrink-0" alt="avatar">
+              <div class="min-w-0">
+                <h3 class="text-base font-bold text-stone-800 dark:text-zinc-100 truncate"><%= esc(blogger.name) %></h3>
+                <p class="text-xs text-amber-600 dark:text-accent mt-0.5 truncate"><%= esc(blogger.motto) %></p>
               </div>
             </div>
-          </template>
-        </div>
-      </div>
-    </aside>
-  </template>
-
-  <template id="tpl-app-footer">
-    <footer class="border-t border-stone-200 dark:border-zinc-800 py-2">
-      <div class="max-w-[100rem] mx-auto px-5 sm:px-8 xl:px-10 flex items-center justify-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
-        <div>© {{ year }} {{ site.name }}. All rights reserved.</div>
-        <a v-if="site.icp" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" class="text-sky-600 dark:text-sky-400 hover:underline">{{ site.icp }}</a>
-      </div>
-    </footer>
-  </template>
-
-  <template id="tpl-post-detail-view">
-    <div class="max-w-[100rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14 dark:bg-zinc-900/50 rounded-xl">
-      <article>
-        <header v-if="!isFixed" class="mb-8 pb-6 border-b border-stone-200 dark:border-zinc-800">
-          <h1 class="text-2xl md:text-3xl font-bold text-stone-800 dark:text-zinc-100 mb-4 leading-tight">{{ title }}</h1>
-          <div class="flex flex-wrap items-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
-            <span><i class="fa-regular fa-calendar mr-1"></i>{{ detail?.date }}</span>
-            <a v-if="detail?.category" :href="'./#/category/' + encodeURIComponent(detail.category)" class="px-2 py-1 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs font-medium">{{ detail.category }}</a>
-            <div v-if="detail?.tags?.length" class="flex items-center gap-2">
-              <i class="fa-solid fa-tags text-xs"></i>
-              <a v-for="t in detail.tags" :key="t" :href="'./#/tag/' + encodeURIComponent(t)" class="text-xs text-stone-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent">{{ t }}</a>
+            <p class="text-xs text-stone-500 dark:text-zinc-400 leading-relaxed">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<%= esc(blogger.bio) %></p>
+            <div class="flex items-center justify-center gap-4 pt-3 border-t border-stone-200 dark:border-zinc-800/50">
+              <% if (blogger.github) { %>
+              <a href="<%= esc(blogger.github) %>" target="_blank" rel="noopener" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-brands fa-github text-base"></i></a>
+              <% } %>
+              <% if (blogger.email) { %>
+              <a href="mailto:<%= esc(blogger.email) %>" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-solid fa-envelope text-base"></i></a>
+              <% } %>
+              <a href="/rss.xml" target="_blank" rel="noopener" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-solid fa-rss text-base"></i></a>
             </div>
           </div>
-        </header>
-        <!-- 移动端 TOC -->
-        <div class="lg:hidden mb-6" v-if="G.tocHeadings.length > 1">
-          <button @click="mobileTocOpen = !mobileTocOpen" class="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50 text-sm text-stone-600 dark:text-zinc-300">
-            <span><i class="fa-solid fa-list mr-2"></i>文章目录</span>
-            <i :class="['fa-solid fa-chevron-down text-xs transition-transform', mobileTocOpen ? 'rotate-180' : '']"></i>
-          </button>
-          <div v-show="mobileTocOpen" class="toc-drawer open mt-2 p-4 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50 max-h-60 overflow-y-auto">
-            <template v-for="h in G.tocTree" :key="'m' + h.id">
-              <a :href="'#' + h.id" @click.prevent="scrollTo(h.id); mobileTocOpen = false"
-                 :class="['block text-sm py-1', h.active ? 'text-amber-600 dark:text-accent font-medium' : 'text-stone-400 dark:text-zinc-400']">
-                {{ h.text }}
-              </a>
-              <template v-for="c in h.children" :key="'m' + c.id">
-                <a :href="'#' + c.id" @click.prevent="scrollTo(c.id); mobileTocOpen = false"
-                   :class="['block text-sm py-1 pl-4', c.active ? 'text-amber-600 dark:text-accent font-medium' : 'text-stone-400 dark:text-zinc-400']">
-                  {{ c.text }}
-                </a>
-              </template>
-            </template>
-          </div>
-        </div>
-        <div id="post-content" class="prose-content min-h-[17dvh]" ref="contentEl" v-html="content"></div>
-        <nav v-if="!isFixed" class="grid grid-cols-2 gap-4 mt-10 pt-6 border-t border-[#f5f5f4] dark:border-zinc-800">
-          <a v-if="detail?.prevPost" :href="'./' + detail.prevPost.id" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl">
-            <div class="text-xs text-stone-400 dark:text-zinc-500 mb-2"><i class="fa-solid fa-arrow-left"></i> 上一篇</div>
-            <div class="text-sm font-medium text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100 line-clamp-2">{{ detail.prevPost.title }}</div>
-          </a>
-          <div v-else class="p-4 rounded-xl border border-dashed border-[#f5f5f4] dark:border-zinc-800 flex items-center justify-center text-sm text-stone-400 dark:text-zinc-600">已是最新一篇</div>
-          <a v-if="detail?.nextPost" :href="'./' + detail.nextPost.id" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl text-right">
-            <div class="text-xs text-stone-400 dark:text-zinc-500 mb-2">下一篇 <i class="fa-solid fa-arrow-right"></i></div>
-            <div class="text-sm font-medium text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100 line-clamp-2">{{ detail.nextPost.title }}</div>
-          </a>
-          <div v-else class="p-4 rounded-xl border border-dashed border-[#f5f5f4] dark:border-zinc-800 flex items-center justify-center text-sm text-stone-400 dark:text-zinc-600">已是最后一篇</div>
-        </nav>
-      </article>
-    </div>
-  </template>
 
-  <template id="tpl-search-modal">
-    <div v-if="searchOpen" class="fixed inset-0 z-[100]" style="display:flex">
-      <div class="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm" @click="close"></div>
-      <div class="absolute top-[20%] left-1/2 -translate-x-1/2 w-full max-w-lg px-4 z-10">
-        <div class="bg-white dark:bg-zinc-900 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl overflow-hidden shadow-2xl">
-          <div class="flex items-center gap-3 px-4 py-3 border-b border-[#f5f5f4] dark:border-zinc-800">
-            <i class="fa-solid fa-magnifying-glass text-stone-400 dark:text-zinc-500"></i>
-            <input ref="inputEl" v-model="q" @keydown="onKey" type="text" placeholder="搜索文章..." autofocus class="flex-1 bg-transparent text-stone-800 dark:text-zinc-100 outline-none text-base">
-            <button @click="close" class="text-stone-400 dark:text-zinc-500"><i class="fa-solid fa-xmark"></i></button>
-          </div>
-          <div class="max-h-80 overflow-y-auto py-2">
-            <div v-if="q && !results.length" class="px-4 py-8 text-center text-stone-400 text-sm">
-              <i class="fa-solid fa-magnifying-glass text-xl mb-2 block opacity-50"></i>没有找到相关文章
+<% if (isPostPage && tocHeadings.length > 1) { %>
+          <!-- 文章目录 -->
+          <div class="rounded-xl bg-white dark:bg-zinc-900/60 border border-[#f5f5f4] dark:border-zinc-800/50 overflow-hidden">
+            <div class="px-4 py-3 border-b border-stone-100 dark:border-zinc-800/50 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <i class="fa-solid fa-list text-stone-400 dark:text-zinc-500 text-sm"></i>
+                <span class="text-xs font-semibold text-stone-700 dark:text-zinc-200">目录</span>
+              </div>
+              <button type="button" id="toc-toggle" data-toggle="toc-panel" aria-expanded="<%= tocCollapsed ? 'false' : 'true' %>" data-icon="plusminus" class="p-1 text-stone-400 dark:text-zinc-500 hover:text-amber-600 dark:hover:text-accent transition-colors">
+                <i class="fa-solid <%= tocCollapsed ? 'fa-plus' : 'fa-minus' %> text-xs"></i>
+              </button>
             </div>
-            <template v-else>
-              <a v-for="(p, i) in results" :key="p.id" :href="'./' + p.id" @click="close"
-                 :class="['block px-4 py-3 transition-colors', selected === i ? 'bg-stone-100 dark:bg-zinc-800' : 'hover:bg-stone-100 dark:hover:bg-zinc-800']">
-                <div class="font-medium text-stone-800 dark:text-zinc-100">{{ p.title }}</div>
-                <div v-if="p.summary" class="text-xs text-stone-400 dark:text-zinc-500 mt-1 line-clamp-2">{{ p.summary.substring(0, 80) }}</div>
-                <div class="text-xs text-stone-400 dark:text-zinc-500 mt-1">{{ p.date }}{{ p.category ? ' · ' + p.category : '' }}</div>
-              </a>
-            </template>
+            <div id="toc-panel"<%= tocCollapsed ? ' hidden' : '' %> class="px-4 py-3">
+              <% tocTree.forEach(function (h) { %>
+              <div>
+                <div class="flex items-center gap-1">
+                  <a href="#<%= h.id %>" data-toc-link="<%= h.id %>" class="toc-link text-sm py-1 transition-colors flex-1 text-stone-400 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent"><%= esc(h.text) %></a>
+                  <% if (h.children.length) { %>
+                  <button type="button" data-toggle="toc-group-<%= h.id %>" aria-expanded="true" class="p-0.5 text-stone-400 dark:text-zinc-500 hover:text-amber-600 dark:hover:text-accent transition-colors">
+                    <i class="fa-solid fa-chevron-right text-[8px] transition-transform i-chevron-90"></i>
+                  </button>
+                  <% } %>
+                </div>
+                <% if (h.children.length) { %>
+                <div id="toc-group-<%= h.id %>" class="pl-4 border-l border-stone-200 dark:border-zinc-700/50 ml-1">
+                  <% h.children.forEach(function (c) { %>
+                  <a href="#<%= c.id %>" data-toc-link="<%= c.id %>" class="toc-link flex items-center gap-1 text-sm py-1 transition-colors text-stone-400 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent"><%= esc(c.text) %></a>
+                  <% }); %>
+                </div>
+                <% } %>
+              </div>
+              <% }); %>
+            </div>
           </div>
-        </div>
+<% } else { %>
+          <!-- 标签 -->
+          <div class="side-tags rounded-xl bg-white dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/50 overflow-hidden">
+            <button type="button" id="tags-toggle" data-toggle="tags-panel" aria-expanded="true" class="w-full flex items-center justify-between px-4 py-3 text-left">
+              <span class="flex items-center gap-2">
+                <i class="fa-solid fa-tags text-stone-400 dark:text-zinc-500 text-sm"></i>
+                <span class="text-xs font-semibold text-stone-700 dark:text-zinc-200">标签</span>
+              </span>
+              <i class="fa-solid fa-chevron-down text-stone-400 dark:text-zinc-500 text-[10px] transition-transform i-chevron-180"></i>
+            </button>
+            <div id="tags-panel" class="border-t border-stone-100 dark:border-zinc-800/50 px-4 py-3">
+              <div class="flex flex-wrap gap-1.5">
+                <% tagList.forEach(function (t) { %>
+                <a href="./#/tag/<%= enc(t.name) %>" data-tag="<%= esc(t.name) %>" class="text-xs px-2.5 py-1 rounded-full transition-colors bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent"><%= esc(t.name) %> <span class="text-stone-400 dark:text-zinc-400"><%= t.count %></span></a>
+                <% }); %>
+              </div>
+            </div>
+          </div>
+<% } %>
+        </aside>
       </div>
     </div>
-  </template>
 
-  <template id="tpl-back-to-top">
-    <button @click="scrollTop" :class="['fixed bottom-24 md:bottom-8 right-6 z-50 w-10 h-10 bg-stone-200 dark:bg-zinc-800 text-stone-500 dark:text-zinc-400 rounded-full shadow-lg transition-all cursor-pointer', visible ? 'opacity-100' : 'opacity-0 pointer-events-none']">
-      <i class="fa-solid fa-arrow-up"></i>
-    </button>
-  </template>
-
-  <template id="tpl-lightbox">
-    <div v-if="lightboxOpen" class="fixed inset-0 z-[200] bg-black/80 items-center justify-center cursor-zoom-out" style="display:flex" @click="close">
-      <img :src="lightboxSrc" class="max-w-[90vw] max-h-[90vh] rounded-lg object-contain" alt="" @click.stop>
+    <!-- ==================== 页脚 ==================== -->
+    <div class="mt-auto">
+      <footer class="border-t border-stone-200 dark:border-zinc-800 py-4">
+        <div class="max-w-[100rem] mx-auto px-5 sm:px-8 xl:px-10 flex items-center justify-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
+          <div>© <%= year %> <%= esc(site.name) %>. All rights reserved.</div>
+          <% if (site.icp) { %>
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" class="text-sky-600 dark:text-sky-400 hover:underline"><%= esc(site.icp) %></a>
+          <% } %>
+        </div>
+      </footer>
     </div>
-  </template>
+  </div>
 
-  <template id="tpl-app-root"><div class="flex flex-col min-h-screen"><div id="reading-progress" class="fixed top-0 left-0 h-0.5 bg-gradient-to-r from-amber-600 to-amber-400 dark:from-amber-500 dark:to-yellow-400 z-[9999] transition-all" :style="{ width: progress + '%' }"></div><app-header @toggle-search="G.searchOpen.value = true"></app-header><div class="flex-1 flex flex-col max-w-[100rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14"><div class="flex-1 grid lg:grid-cols-[1fr_270px] lg:items-start gap-10 xl:gap-12"><main id="main-scroll" class="min-w-0" ref="mainEl"></main><app-sidebar></app-sidebar></div></div><div class="mt-auto"><app-footer class="py-4"></app-footer></div><search-modal></search-modal><back-to-top></back-to-top><lightbox></lightbox></div></template>
+  <!-- ==================== 搜索弹窗 ==================== -->
+  <div id="search-modal" hidden class="fixed inset-0 z-[100]">
+    <div id="search-overlay" class="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm"></div>
+    <div class="absolute top-[20%] left-1/2 -translate-x-1/2 w-full max-w-lg px-4 z-10">
+      <div class="bg-white dark:bg-zinc-900 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl overflow-hidden shadow-2xl">
+        <div class="flex items-center gap-3 px-4 py-3 border-b border-[#f5f5f4] dark:border-zinc-800">
+          <i class="fa-solid fa-magnifying-glass text-stone-400 dark:text-zinc-500"></i>
+          <input id="search-input" type="text" placeholder="搜索文章..." autocomplete="off" class="flex-1 bg-transparent text-stone-800 dark:text-zinc-100 outline-none text-base">
+          <button type="button" data-search-close class="text-stone-400 dark:text-zinc-500"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="search-results" class="max-h-80 overflow-y-auto py-2"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 回到顶部 ==================== -->
+  <button type="button" id="back-to-top" class="fixed bottom-24 md:bottom-8 right-6 z-50 w-10 h-10 bg-stone-200 dark:bg-zinc-800 text-stone-500 dark:text-zinc-400 rounded-full shadow-lg cursor-pointer">
+    <i class="fa-solid fa-arrow-up"></i>
+  </button>
+
+  <!-- ==================== 图片灯箱 ==================== -->
+  <div id="lightbox" hidden class="fixed inset-0 z-[200] bg-black/80 cursor-zoom-out">
+    <img id="lightbox-img" src="" class="max-w-[90vw] max-h-[90vh] rounded-lg object-contain" alt="">
+  </div>
+
+  <!-- 搜索索引（只含标题/摘要/标签等检索字段） -->
+  <script type="application/json" id="search-index"><%- safeJson(searchIndex) %></script>
+
+  <!-- 移动端底部导航 -->
+  <nav class="site-tabbar md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-zinc-900 border-t border-[#f5f5f4] dark:border-zinc-800 flex justify-around py-2">
+    <a href="./" data-nav="home" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-house text-sm"></i><span>首页</span></a>
+    <a href="./#/archive" data-nav="archive" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-folder text-sm"></i><span>归档</span></a>
+    <a href="./#/tags" data-nav="tags" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-tags text-sm"></i><span>标签</span></a>
+    <a href="./about" data-nav="about" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-user text-sm"></i><span>关于</span></a>
+  </nav>
 
 <!-- 阶段③ 上线：启用下面这行，并注释掉 head 里的 shareJs 引用
 <script src="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.js"></script>

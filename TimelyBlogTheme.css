@@ -2134,6 +2134,56 @@ code:not([class*="language-"]):not(.prose-content code) { font-family: 'JetBrain
 .toc-drawer { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
 .toc-drawer.open { max-height: 15rem; overflow-y: auto; }
 
+/* ==========================================================================
+ * 交互状态样式（对应 TimelyBlogTheme.js）
+ * 这些规则刻意不放进 @layer —— 未分层样式优先级高于 Tailwind 的 @layer utilities，
+ * 因此能覆盖组件上的 text-* / bg-* 工具类。颜色统一写成 var(--color-*, 回退值)，
+ * Tailwind 重新构建后即使某个变量不再产出，也有回退色可用。
+ * ========================================================================== */
+
+/* 深色背景层：由 html.dark 控制，不依赖 JS（避免首屏闪一下浅色背景） */
+#dark-bg { display: none; }
+.dark #dark-bg { display: block; }
+
+/* 主题切换按钮的日 / 月图标（FontAwesome 会给 <i> 设 display，这里用 !important 压过它） */
+#theme-toggle .i-sun { display: none !important; }
+#theme-toggle .i-moon { display: inline-block !important; }
+.dark #theme-toggle .i-sun { display: inline-block !important; }
+.dark #theme-toggle .i-moon { display: none !important; }
+
+/* 顶部导航高亮（body[data-view] + aria-current 驱动，桌面导航与移动底栏不同色） */
+.site-nav a[aria-current="page"],
+.site-nav button[aria-current="page"] { color: var(--color-stone-800, #292524); background-color: var(--color-stone-100, #f5f5f4); }
+.dark .site-nav a[aria-current="page"],
+.dark .site-nav button[aria-current="page"] { color: var(--color-zinc-100, #f4f4f5); background-color: var(--color-zinc-800, #27272a); }
+.site-tabbar a[aria-current="page"] { color: var(--color-amber-600, #d97706); }
+.dark .site-tabbar a[aria-current="page"] { color: var(--color-accent, #d97706); }
+
+/* 侧边栏标签：当前标签高亮 */
+.side-tags a[aria-current="page"] { background-color: var(--color-amber-100, #fef3c7); color: var(--color-amber-700, #b45309); }
+.dark .side-tags a[aria-current="page"] { background-color: color-mix(in oklab, var(--color-accent, #d97706) 10%, transparent); color: var(--color-accent, #d97706); }
+
+/* 目录滚动高亮 */
+.toc-link[aria-current="true"] { color: var(--color-amber-600, #d97706); font-weight: 500; }
+.dark .toc-link[aria-current="true"] { color: var(--color-accent, #d97706); }
+
+/* 折叠箭头：由 aria-expanded 驱动，不依赖 Tailwind 的 rotate-* 工具类 */
+[data-toggle][aria-expanded="true"] .i-chevron-180 { transform: rotate(180deg); }
+[data-toggle][aria-expanded="true"] .i-chevron-90 { transform: rotate(90deg); }
+
+/* 回到顶部：默认隐藏，滚动超过 300px 后加 .is-visible */
+#back-to-top { opacity: 0; pointer-events: none; transition: opacity 0.2s ease; }
+#back-to-top.is-visible { opacity: 1; pointer-events: auto; }
+
+/* 弹层：本身是 flex 容器，hidden 属性时强制隐藏 */
+#search-modal { display: flex; }
+#lightbox { display: flex; align-items: center; justify-content: center; }
+#search-modal[hidden], #lightbox[hidden] { display: none; }
+
+/* 搜索结果选中项 */
+#search-results a[aria-selected="true"] { background-color: var(--color-stone-100, #f5f5f4); }
+.dark #search-results a[aria-selected="true"] { background-color: var(--color-zinc-800, #27272a); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
