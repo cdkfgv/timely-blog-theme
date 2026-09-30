@@ -95,8 +95,14 @@ window.BLOG_DATA = {
   <link rel="preconnect" href="https://www.unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://www.unpkg.com/font-online@1.3.2/css/alibaba-pu-hui-ti-3.online.css">
 
-  <!-- 主题样式：开发调试阶段直接引用 Trilium 托管的 Code 笔记
-       （分享根笔记上添加 ~shareCss / ~shareJs 关系，并勾选「可继承」） -->
+  <!-- 主题资源 · 三阶段：
+       ① 开发（当前）：用下面的 shareCss / shareJs 引用 Trilium 托管的 Code 笔记，
+          share-tool 渲染时把 api/notes/<id>/download 重写成
+          D:\TimelyBlogTheme\TimelyBlogTheme.css / .js，改完存盘即见
+       ② 预览：CSS/JS 已上传进 Trilium，此处不动任何东西，直接看 Trilium 是否正确渲染
+       ③ 上线：把 CSS/JS 传 GitHub 拿到 CDN 地址 → 改为下面的 CDN 引用，
+          并注释掉 shareCss / shareJs 两段循环（shareCss/shareJs 方式需要登录，不适合外网）
+       注意：~shareCss / ~shareJs 关系必须勾选「可继承」，否则子页面取不到 -->
   <% for (const cssRelation of note.getRelations("shareCss")) { %>
   <link href="api/notes/<%= cssRelation.value %>/download" rel="stylesheet">
   <% } %>
@@ -104,7 +110,7 @@ window.BLOG_DATA = {
   <script type="module" src="api/notes/<%= jsRelation.value %>/download"></script>
   <% } %>
 
-  <!-- 发布形态：确认无误后把 CSS/JS 传 GitHub，改用 CDN（同时注释掉上面的 shareCss / shareJs 引用）
+  <!-- 阶段③ 上线：启用下面两行，并注释掉上面的 shareCss / shareJs 引用
   <link href="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.css" rel="stylesheet">
   -->
   <!-- Vue 3 运行时 + 编译器（支持模板字符串编译） -->
@@ -545,7 +551,7 @@ window.BLOG_DATA = {
 
   <template id="tpl-app-root"><div class="flex flex-col min-h-screen"><div id="reading-progress" class="fixed top-0 left-0 h-0.5 bg-gradient-to-r from-amber-600 to-amber-400 dark:from-amber-500 dark:to-yellow-400 z-[9999] transition-all" :style="{ width: progress + '%' }"></div><app-header @toggle-search="G.searchOpen.value = true"></app-header><div class="flex-1 flex flex-col max-w-[100rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14"><div class="flex-1 grid lg:grid-cols-[1fr_270px] lg:items-start gap-10 xl:gap-12"><main id="main-scroll" class="min-w-0" ref="mainEl"></main><app-sidebar></app-sidebar></div></div><div class="mt-auto"><app-footer class="py-4"></app-footer></div><search-modal></search-modal><back-to-top></back-to-top><lightbox></lightbox></div></template>
 
-<!-- 发布形态：确认无误后把 JS 传 GitHub，改用 CDN（同时注释掉 head 里的 shareJs 引用）
+<!-- 阶段③ 上线：启用下面这行，并注释掉 head 里的 shareJs 引用
 <script src="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.js"></script>
 -->
 </body>
