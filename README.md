@@ -59,7 +59,8 @@ npm start                   # 或 npm run dev（server.js 改动自动重启）
 |---|---|---|
 | `/share/` | `/share/` | 根笔记页（首页列表） |
 | `/share/<noteId 或 shareAlias>` | 同 | 详情页 / 固定页（如 `/share/about`） |
-| `/share/theme/<file>` | CDN / `~shareCss`、`~shareJs` | 本地主题资源 |
+| `/share/theme/<file>` | CDN / `api/notes/<id>/download` | 本地主题资源（两种形态都会被本地化到这里） |
+| `/share/api/notes/<id>/download` | 同 | Trilium 托管的 Code 笔记（主题 CSS/JS 的开发期引用） |
 | `/share/api/attachments/<id>/download` | 同 | 附件下载 |
 | `/share/api/attachments/<id>/image/<title>` | 同 | 正文内嵌图片 |
 | `/share/api/images/<noteId>/<file>` | 同 | 图片笔记 |
@@ -68,6 +69,15 @@ npm start                   # 或 npm run dev（server.js 改动自动重启）
 | 任意页面加 `?fresh=1` | — | 跳过缓存重新拉取 |
 
 `content` 里的内部链接按 Trilium 规则改写：`#root/<noteId>` → `./<shareId>`、`#...?attachmentId=x` → `api/attachments/x/download`、找不到的目标去掉 `href`，`api/` 资源路径归一为 `/share/api/`。
+
+**主题资源本地化**（两种形态都指向本地文件，改完 CSS/JS 刷新即见）：
+
+| EJS 里的形态 | 场景 | 本地化方式 |
+|---|---|---|
+| `note.getRelations("shareCss"/"shareJs")` → `api/notes/<id>/download` | **开发调试期**（当前） | 按 noteId 查 `config.hostedAssets`（取自 `PUSH_NOTE_CSS/JS`，mock 用 `themeCss0001/themeJs0001`）；未命中按被引用笔记 MIME 判断 |
+| `cdn.jsdmirror.com/gh/.../Timely-Theme/<file>` | 发布形态（EJS 里以注释保留） | `config.assetRewrite` 按文件名映射 |
+
+HTML 注释内的内容不做改写，方便在页面源码里对照发布形态。
 
 ---
 

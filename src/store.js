@@ -30,6 +30,16 @@ function splitAttributes(raw) {
   };
 }
 
+/**
+ * 某笔记自身「可继承」的属性（label + relation）。
+ * 对齐 Trilium `BAttribute.isInheritable`：可继承属性沿父链下传给所有子孙笔记。
+ * 注意 relation 同样可继承 —— `~shareCss` / `~shareJs` 挂在分享根笔记上，
+ * 子页面渲染时 note 是子笔记，只能靠继承取到。
+ */
+function inheritableAttrs(node) {
+  return [...node.ownLabels, ...node.ownRelations].filter((a) => a.isInheritable);
+}
+
 export class TriliumStore {
   constructor(api, { rootNoteId, ttl = 30000, depth = 6, maxNotes = 2000 } = {}) {
     this.api = api;
@@ -138,16 +148,10 @@ export class TriliumStore {
           }
           child.parentId = parent.noteId;
           child.depth = parent.depth + 1;
-          // 继承可继承标签（模拟 Trilium 的 attribute inheritance）
-          child.inherited = [
-            ...parent.inherited,
-            ...parent.labels.filter((l) => l.isInheritable),
-          ];
-          child.labels = dedupeLabels([...child.ownLabels, ...child.inherited]);
-          child.relations = [
-            ...child.ownRelations,
-            ...parent.inherited.filter((l) => l.type === 'relation'),
-          ];
+          // 继承可继承属性（label + relation 都沿父链下传）
+          child.inherited = [...parent.inherited, ...inheritableAttrs(parent)];
+          child.labels = dedupeAttrs(child.inherited.filter((a) => a.type === 'label'), child.ownLabels);
+          child.relations = dedupeAttrs(child.inherited.filter((a) => a.type === 'relation'), child.ownRelations);
           nodes.set(child.noteId, child);
           nextLevel.push(child);
           const shareId = child.labels.find((l) => l.name === 'shareAlias')?.value || child.noteId;
@@ -185,8 +189,8 @@ export class TriliumStore {
       const node = await this._fetchNode(noteId);
       node.parentId = (node.raw.parentNoteIds ?? [])[0] ?? null;
       node.inherited = await this._collectInherited(node.parentId);
-      node.labels = dedupeLabels([...node.ownLabels, ...node.inherited]);
-      node.relations = [...node.ownRelations, ...node.inherited.filter((l) => l.type === 'relation')];
+      node.labels = dedupeAttrs(node.inherited.filter((a) => a.type === 'label'), node.ownLabels);
+      node.relations = dedupeAttrs(node.inherited.filter((a) => a.type === 'relation'), node.ownRelations);
       node.children = node.raw.childNoteIds ?? [];
       node.note = new ShareNote(node, this);
       this.nodes.set(node.noteId, node);
@@ -204,9 +208,9 @@ export class TriliumStore {
     if (!parent) {
       try {
         parent = await this._fetchNode(parentId);
-        parent.relations = [...parent.ownRelations];
         parent.inherited = await this._collectInherited(parent.parentId, [], guard + 1);
-        parent.labels = dedupeLabels([...parent.ownLabels, ...parent.inherited]);
+        parent.labels = dedupeAttrs(parent.inherited, parent.ownLabels);
+        parent.relations = dedupeAttrs(parent.inherited, parent.ownRelations);
         parent.children = parent.raw.childNoteIds ?? [];
         parent.note = new ShareNote(parent, this);
         this.nodes.set(parent.noteId, parent);
@@ -214,7 +218,7 @@ export class TriliumStore {
         return acc;
       }
     }
-    const next = [...parent.labels.filter((l) => l.isInheritable), ...acc];
+    const next = [...inheritableAttrs(parent), ...acc];
     return this._collectInherited(parent.parentId, next, guard + 1);
   }
 
@@ -299,14 +303,19 @@ export class TriliumStore {
   }
 }
 
-function dedupeLabels(labels) {
+/** 合并属性：自身属性优先，继承来的按 `name=value` 去重 */
+function dedupeAttrs(inherited, own) {
   const seen = new Set();
   const out = [];
-  for (const l of labels) {
-    const key = `${l.name}=${l.value}`;
+  for (const a of own) {
+    seen.add(`${a.name}=${a.value}`);
+    out.push(a);
+  }
+  for (const a of inherited) {
+    const key = `${a.name}=${a.value}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(l);
+    out.push(a);
   }
   return out;
 }

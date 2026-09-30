@@ -53,8 +53,8 @@ export const config = {
   },
 
   /**
-   * 资源 URL 本地化：生产环境 EJS 里写的是 CDN 地址，本地开发时替换成本地文件，
-   * 这样改 CSS/JS 刷新即可见，无需先上传到 Trilium / CDN。
+   * 资源 URL 本地化（CDN 形态）：EJS 里写死 CDN 地址时，本地开发替换成本地文件，
+   * 这样改 CSS/JS 刷新即可见，无需先上传 CDN。
    * pattern 中的第一个捕获组 = CDN 上的文件名，再由 map 映射成本地文件名。
    */
   assetRewrite: [
@@ -63,12 +63,29 @@ export const config = {
       map: {},
     },
   ],
+
+  /**
+   * 资源 URL 本地化（Trilium 托管形态）：开发调试期 EJS 用
+   * `note.getRelations("shareCss"|"shareJs")` → `api/notes/<noteId>/download` 引用主题资源。
+   * 本地渲染时把这些引用换成本地主题文件（否则拿到的是笔记里的旧副本，改了看不见）。
+   * key = Trilium 里 Code 笔记的 noteId，value = 本地主题文件名。
+   * 未命中时回退：按被引用笔记的 MIME 判断（见 render.js 的 localizeAssets）。
+   */
+  hostedAssets: {},
 };
 
 config.assetRewrite[0].map = {
   'timely-theme.css': config.cssFile,
   'timely-theme.js': config.jsFile,
 };
+
+// Trilium 托管的主题资源 noteId → 本地文件名
+if (config.push.css) config.hostedAssets[config.push.css] = config.cssFile;
+if (config.push.js) config.hostedAssets[config.push.js] = config.jsFile;
+if (config.mock) {
+  config.hostedAssets.themeCss0001 = config.cssFile;
+  config.hostedAssets.themeJs0001 = config.jsFile;
+}
 
 
 export function themePath(file) {

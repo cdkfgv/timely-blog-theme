@@ -22,7 +22,7 @@ function addNote(note, parentId) {
 
 const content = new Map();
 const label = (name, value, isInheritable = false) => ({ attributeId: 'a_' + name + value, type: 'label', name, value, position: 10, isInheritable });
-const relation = (name, value) => ({ attributeId: 'r_' + name + value, type: 'relation', name, value, position: 10, isInheritable: false });
+const relation = (name, value, isInheritable = false) => ({ attributeId: 'r_' + name + value, type: 'relation', name, value, position: 10, isInheritable });
 
 /* ---- 站点根 ---- */
 addNote(
@@ -41,10 +41,10 @@ addNote(
       label('bloggerBio', '全栈开发者，关注前后端与基础设施。'),
       label('bloggerEmail', 'me@example.com'),
       label('bloggerGithub', 'https://github.com/example'),
-      // 线上会有这两个关系（Trilium 托管主题资源），主题不读它们，
-      // 保留 mock 是为了对齐真实笔记结构：加了关系也不应输出任何回退属性
-      relation('shareCss', 'themeCss0001'),
-      relation('shareJs', 'themeJs0001'),
+      // 开发调试期主题资源引用（Trilium 托管 Code 笔记）。
+      // 必须 isInheritable：否则只有根笔记页面能取到，子页面渲染时 note 是子笔记、取不到关系。
+      relation('shareCss', 'themeCss0001', true),
+      relation('shareJs', 'themeJs0001', true),
     ],
   },
   null,

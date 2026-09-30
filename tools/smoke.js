@@ -186,12 +186,35 @@ for (const [file, typeHint] of [[config.cssFile, /^text\/css/], [config.jsFile, 
 }
 
 // ---- F. 资源加载策略 ----
-console.log('\nF. 资源加载策略（人工发布 CDN，不做自动回退）');
-check('页面无 CSS onerror 回退', !home.body.includes('onerror="this.onerror=null'), '检测到 css 回退属性');
-check('页面无 JS 兜底注入脚本', !/onerror="\(function\(\)\{var s=document\.createElement/.test(home.body), '检测到 js 兜底属性');
+console.log('\nF. 资源加载策略（开发期引用 Trilium 托管资源，发布期切 CDN）');
 const ejsSrc = fs.readFileSync(path.join(config.themeDir, config.ejsFile), 'utf8');
-check('源码里主题资源指向 CDN（发布形态）', /cdn\.jsdmirror\.com\/gh\/[^"']+\/timely-theme\.(css|js)/.test(ejsSrc), 'EJS 里未找到 CDN 链接');
-check('本地渲染已替换成本地资源', `${PREFIX}/theme/${config.cssFile}`.length > 0 && home.body.includes(`/theme/${config.cssFile}`), '渲染结果里未找到本地主题资源');
+check('EJS 开发形态：引用 ~shareCss / ~shareJs',
+  /getRelations\("shareCss"\)/.test(ejsSrc) && /getRelations\("shareJs"\)/.test(ejsSrc),
+  'EJS 里未找到 shareCss / shareJs 循环');
+check('EJS 保留 CDN 发布形态（已注释）',
+  /<!--[\s\S]{0,400}?timely-theme\.css[\s\S]{0,400}?-->/.test(ejsSrc) &&
+  /<!--[\s\S]{0,400}?timely-theme\.js[\s\S]{0,400}?-->/.test(ejsSrc),
+  'EJS 里未找到被注释的 CDN 引用');
+check('无自动回退逻辑（无 onerror / 动态注入）',
+  !home.body.includes('onerror="this.onerror=null') && !/onerror="\(function\(\)/.test(home.body),
+  '检测到回退属性');
+
+const homeAssets = home.body.match(/<link[^>]+href="api\/notes\/[^"]+\/download"[^>]*>|<script[^>]+src="api\/notes\/[^"]+\/download"[^>]*>/g) || [];
+check('首页主题资源已本地化（无 api/notes 引用）', homeAssets.length === 0, `仍有 ${homeAssets.length} 处：${homeAssets[0] || ''}`);
+check(`首页注入本地 CSS（${PREFIX}/theme/${config.cssFile}）`,
+  new RegExp(`<link[^>]+href="${PREFIX}/theme/${config.cssFile}"`).test(home.body));
+check(`首页注入本地 JS（${PREFIX}/theme/${config.jsFile}，保持 module）`,
+  new RegExp(`<script type="module" src="${PREFIX}/theme/${config.jsFile}"></script>`).test(home.body),
+  '未找到 type="module" 的主题脚本');
+check('注释里的 CDN 发布形态保持原样', /<!--[\s\S]*?cdn\.jsdmirror\.com[\s\S]*?-->/.test(home.body), '注释内容被误改写');
+
+// 子页面同样要有样式 —— 验证 ~shareCss / ~shareJs 关系的「可继承」生效
+const sub = await get(`${BASE}${PREFIX}/post0000001`);
+const subAssets = sub.body.match(/<link[^>]+href="api\/notes\/[^"]+\/download"[^>]*>|<script[^>]+src="api\/notes\/[^"]+\/download"[^>]*>/g) || [];
+check('子页面主题资源已本地化', subAssets.length === 0, `仍有 ${subAssets.length} 处`);
+check('子页面继承到主题资源（关系需勾「可继承」）',
+  new RegExp(`<link[^>]+href="${PREFIX}/theme/${config.cssFile}"`).test(sub.body),
+  '子页面没有主题 CSS —— 关系没继承');
 
 /* ------------------------------------------------------------------ */
 

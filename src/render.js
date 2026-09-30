@@ -66,22 +66,46 @@ export async function renderSharePage({ store, note, url = '/' }) {
     rmWhitespace: false,
   });
 
-  html = localizeAssets(html);
+  html = localizeAssets(html, store);
   html = injectLiveReload(html);
   return { html, isEmpty: locals.isEmpty, content };
 }
 
-/** 把 EJS 里写死的 CDN 地址换成本地主题文件，改 CSS/JS 刷新即见 */
-export function localizeAssets(html) {
-  let out = html;
-  for (const rule of config.assetRewrite) {
-    const re = new RegExp(rule.pattern, 'g');
-    out = out.replace(re, (match, file) => {
-      const local = rule.map?.[file] || file;
-      return `${config.shareUrlPrefix}/theme/${local}`;
+/**
+ * 把 EJS 里的主题资源引用换成本地文件，改 CSS/JS 刷新即见。
+ * 两种形态都支持：
+ *   1. CDN 地址（发布形态，代码里始终保留）
+ *   2. `api/notes/<noteId>/download`（开发形态，Trilium 托管 Code 笔记）
+ *      —— 按 noteId 查 config.hostedAssets；未命中则按被引用笔记的 MIME 判断
+ * HTML 注释里的内容（如「发布形态」示例）保持原样，方便对照。
+ */
+export function localizeAssets(html, store) {
+  const rewrite = (chunk) => {
+    let out = chunk;
+
+    for (const rule of config.assetRewrite) {
+      const re = new RegExp(rule.pattern, 'g');
+      out = out.replace(re, (match, file) => {
+        const local = rule.map?.[file] || file;
+        return `${config.shareUrlPrefix}/theme/${local}`;
+      });
+    }
+
+    return out.replace(/api\/notes\/([\w-]+)\/download/g, (match, noteId) => {
+      let local = config.hostedAssets[noteId];
+      if (!local) {
+        const mime = store?.get(noteId)?.mime ?? '';
+        if (/^text\/css/i.test(mime)) local = config.cssFile;
+        else if (/javascript/i.test(mime)) local = config.jsFile;
+      }
+      return local ? `${config.shareUrlPrefix}/theme/${local}` : match;
     });
-  }
-  return out;
+  };
+
+  return html
+    .split(/(<!--[\s\S]*?-->)/)
+    .map((part, i) => (i % 2 === 1 ? part : rewrite(part)))
+    .join('');
 }
 
 /** 注入热重载脚本（主题文件变化 → 浏览器自动刷新） */
