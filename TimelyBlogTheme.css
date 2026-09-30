@@ -2187,3 +2187,21 @@ code:not([class*="language-"]):not(.prose-content code) { font-family: 'JetBrain
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ==========================================================================
+ * 代码高亮（highlight.js）适配
+ * --------------------------------------------------------------------------
+ * hljs 的主题 CSS（github / github-dark）只负责 token 上色，不带容器背景。
+ * 这里补上容器底色，并让 .hljs 也命中原来写死 language-* 的尺寸规则
+ * （因为 highlight() 之后 class 会同时带 hljs / language-xxx / data-lang）。
+ * 手写样式统一放文件末尾 banner 段内：Tailwind 重建会覆盖前面的部分。
+ * ========================================================================== */
+pre code.hljs { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.7; }
+pre:has(> code.hljs) { margin: 0; padding: 1.125rem; border-radius: 0 0 0.75rem 0.75rem; max-height: 24rem; overflow-y: auto; }
+/* 容器底色（与 .code-header 配套：浅色 stone-50 / 暗色 zinc-900） */
+.code-block pre { background-color: #fafaf9; }
+.dark .code-block pre { background-color: #18181b; }
+/* hljs 的行内代码不应被误当成代码块 */
+.prose-content code.hljs:not(pre code) { padding: 0; background: none; border: 0; }
+/* 代码块内的等宽留白：hljs 会把换行也包进 span，避免行高塌陷 */
+.code-block pre code.hljs { display: block; white-space: pre; tab-size: 2; }

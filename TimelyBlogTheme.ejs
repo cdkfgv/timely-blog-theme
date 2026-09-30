@@ -258,14 +258,13 @@ var year = new Date().getFullYear();
   <link href="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.css" rel="stylesheet">
   -->
   <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/jetbrains-mono@1.0.6/css/jetbrains-mono.min.css">
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" rel="stylesheet" id="prism-light">
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" id="prism-dark" disabled>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-docker.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-rust.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-go.min.js"></script>
+  <!-- 代码高亮：highlight.js 11（单文件全语言，自带 bash / yaml / docker / ts 等）
+       明暗双主题各挂一份，由 #hljs-light / #hljs-dark 的 disabled 切换（见 TimelyBlogTheme.js 的 syncHljs）
+       注意：Trilium 输出的 class 是 MIME 形式（language-text-x-sh / language-application-typescript），
+       在客户端由 normalizeLang() + LANGUAGE_MAP 归一后才能被 hljs 识别。 -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css" rel="stylesheet" id="hljs-light">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css" rel="stylesheet" id="hljs-dark" disabled>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
   <!-- 尽早决定明/暗，避免首屏闪白 -->

@@ -19,19 +19,19 @@
   /* ==================== 明 / 暗主题 ==================== */
   function isDark() { return docEl.classList.contains('dark'); }
 
-  function syncPrism() {
-    var light = D.getElementById('prism-light');
-    var dark = D.getElementById('prism-dark');
+  function syncHljs() {
+    var light = D.getElementById('hljs-light');
+    var dark = D.getElementById('hljs-dark');
     if (light && dark) { light.disabled = isDark(); dark.disabled = !isDark(); }
   }
-  syncPrism();
+  syncHljs();
 
   var themeBtn = D.getElementById('theme-toggle');
   if (themeBtn) {
     themeBtn.addEventListener('click', function () {
       var dark = docEl.classList.toggle('dark');
       try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) { /* 隐私模式忽略 */ }
-      syncPrism();
+      syncHljs();
     });
   }
 
@@ -169,24 +169,77 @@
   /* ==================== 正文增强（仅文章页） ==================== */
   var contentEl = D.getElementById('post-content');
   if (contentEl) {
-    /* --- 代码块：包一层 header + 复制按钮 --- */
-    var langMap = {
-      'application-typescript': 'typescript',
-      'application-javascript': 'javascript',
-      'application-javascript-env-backend': 'javascript',
-      'application-x-jsp': 'markup',
-      'text/html': 'markup',
-      'application/javascript': 'javascript',
-      'text/typescript': 'typescript'
+    /* --- 代码块：包一层 header + 复制按钮 + highlight.js 高亮 --- */
+
+    /* Trilium 输出的代码块 class 是 MIME 形式，需要归一到 hljs 认识的语言名。
+       实测遇到的形态：
+         language-text-x-sh                    → bash
+         language-text-x-yaml                  → yaml
+         language-text-x-trilium-auto          → 空（交给 hljs 自动探测）
+         language-application-typescript       → typescript
+         language-application-javascript-env-backend → javascript
+       归一规则，按顺序：① 查别名表；② 去掉 text-x- / application- / text- 前缀；
+       ③ application-*-env-backend 这类以 -env-backend 结尾的取第一段。 */
+    var LANGUAGE_MAP = {
+      'sh': 'bash',
+      'shell': 'bash',
+      'shellscript': 'bash',
+      'zsh': 'bash',
+      'yml': 'yaml',
+      'js': 'javascript',
+      'ts': 'typescript',
+      'jsx': 'javascript',
+      'tsx': 'typescript',
+      'html': 'xml',
+      'htm': 'xml',
+      'markup': 'xml',
+      'docker': 'dockerfile',
+      'docker-compose': 'yaml',
+      'dockercompose': 'yaml',
+      'trilium-auto': '',
+      'plaintext': '',
+      'plain': '',
+      'code': '',
+      'text': ''
     };
+
+    function normalizeLang(raw) {
+      var s = String(raw || '').toLowerCase().trim();
+      if (!s) return '';
+      if (LANGUAGE_MAP[s] !== undefined) return LANGUAGE_MAP[s];
+      /* application-javascript-env-backend → javascript；text-x-yaml → yaml */
+      s = s.replace(/^language-/, '').replace(/^application-/, '').replace(/^text-x-/, '').replace(/^text-/, '');
+      s = s.replace(/-env-backend$/, '');
+      if (LANGUAGE_MAP[s] !== undefined) return LANGUAGE_MAP[s];
+      /* 剩下的复合名取第一段（如 docker-compose → docker） */
+      if (s.indexOf('-') > 0 && LANGUAGE_MAP[s.split('-')[0]] !== undefined) return LANGUAGE_MAP[s.split('-')[0]];
+      return s;
+    }
+
+    function highlight(code) {
+      if (!window.hljs) return;
+      var lang = (code.className.match(/language-([\w-]+)/) || [])[1] || '';
+      var normalized = normalizeLang(lang);
+      var result;
+      try {
+        result = normalized
+          ? window.hljs.highlight(code.textContent, { language: normalized, ignoreIllegals: true })
+          : window.hljs.highlightAuto(code.textContent);
+      } catch (e) {
+        return; /* 语言未注册或语法异常时保持纯文本 */
+      }
+      code.innerHTML = result.value;
+      code.classList.add('hljs');
+      code.classList.add('language-' + (result.language || normalized || 'plaintext'));
+      code.setAttribute('data-lang', result.language || normalized || 'plaintext');
+    }
 
     qsa('pre', contentEl).forEach(function (pre) {
       var code = pre.querySelector('code');
       if (!code || pre.closest('.code-block')) return;
 
-      var raw = (code.className.match(/language-([\w-]+)/) || [])[1] || '';
-      var lang = langMap[raw] || raw || 'code';
-      code.className = 'language-' + lang;
+      var lang = normalizeLang((code.className.match(/language-([\w-]+)/) || [])[1] || '');
+      code.setAttribute('data-lang', lang || 'text');
 
       var wrapper = D.createElement('div');
       wrapper.className = 'code-block';
@@ -195,7 +248,7 @@
       header.className = 'code-header';
 
       var label = D.createElement('span');
-      label.textContent = lang;
+      label.textContent = lang || 'text';
 
       var copyBtn = D.createElement('button');
       copyBtn.type = 'button';
@@ -234,7 +287,7 @@
         }
       });
 
-      if (window.Prism && window.Prism.highlightElement) window.Prism.highlightElement(code);
+      highlight(code);
     });
 
     /* --- 图片灯箱 --- */

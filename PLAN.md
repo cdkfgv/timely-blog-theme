@@ -68,7 +68,7 @@
 - [ ] **2.3 依赖收敛** — 用户决策：图标换**内联 SVG**（需先确认线框稿）
   - [x] 线框稿：`mockups/icons-mockup.html`（24 个图标逐一对照，左列真实 FontAwesome，含明暗切换、34px 放大对比、场景预演）→ **待你确认**
   - [ ] 按确认结果改 EJS：`<svg><symbol>` 精灵块 + `class="i i-16"`，删 FontAwesome `all.min.css`
-  - [ ] Prism 语言包按需收敛（低优先，可能延后）
+  - [x] ~~Prism 语言包按需收敛~~ → **已整体换掉**，见阶段 6
 
 ---
 
@@ -222,3 +222,50 @@
 - canvas（Excalidraw）笔记：标记与线上一致（`<img src="api/images/...">`），但本地返回占位 SVG，不模拟实际绘制
 - 未模拟：受保护笔记拦截、CKEditor 净化、i18n 文案、KaTeX
 - `npm run push` 无 dry-run 预览（可选加）
+
+---
+
+## 阶段 6 · 代码高亮换 highlight.js ✅ 已完成（2026-09-30）
+
+> 起因：用户问「现在用 Prism，有更好的推荐吗，bash / yaml 比较多」→ 做对比页 → 选中 highlight.js。
+
+### 6.1 先修根因：语言名对不上（这才是「正文零高亮」的原因）
+
+Trilium 输出的 `<code>` class 是 **MIME 形式**，实测 5 种形态，Prism 一个都不认：
+
+| Trilium 实际输出 | 语义 | 归一目标 |
+|---|---|---|
+| `language-text-x-sh` | bash | `bash` |
+| `language-text-x-yaml` | yaml | `yaml` |
+| `language-text-x-trilium-auto` | 自动识别 | `''` → 交给 `highlightAuto` |
+| `language-application-typescript` | ts | `typescript` |
+| `language-application-javascript-env-backend` | node/js | `javascript` |
+
+→ 主题 JS 新增 `LANGUAGE_MAP` + `normalizeLang()`；**换任何高亮器都躲不掉这一层**。
+
+### 6.2 换库
+
+- [x] 删 Prism：`prism.min.css` / `prism-tomorrow.min.css` + core + 5 个 `components/*.js`（共 8 个请求）
+- [x] 换 hljs：`highlight.min.js` 单文件（全语言）+ `github.min.css` / `github-dark.min.css` **明暗双主题**，由 `syncHljs()` 切 `disabled`
+- [x] `syncPrism()` → `syncHljs()`；`Prism.highlightElement()` → `hljs.highlight()/highlightAuto()`
+- [x] 代码块容器补底色（`.code-block pre` 浅 `#fafaf9` / 暗 `#18181b`），`.hljs` 命中原来只写 `language-*` 的尺寸规则
+- [x] 语言标签改读归一后的名字（不再显示 `text-x-sh` 这种原文）
+
+### 6.3 对比页（交付给用户目视选型）
+
+- `mockups/code-highlight-compare.html` — bash / yaml 各 4 栏并排（Prism tomorrow · hljs github-dark · Shiki 配色示意 · 现状无高亮）+ 体积/准确率表 + 建议
+- 结论：**换 hljs**（按需版 ≈35KB，bash/yaml/docker 内置，单文件接入）；**不用 Shiki**（wasm ≈700KB 或服务端预渲染，不适配 Trilium 自定义模板）
+
+### 6.4 测试
+
+- `smoke` 新增 **J 段**（13 项）：引用检查、双主题互斥、`normalizeLang` 存在性、**5 种 MIME 形态逐一归一断言**、SSR 不改写正文 class
+- `dom` 新增 **F 段**（14 项）：jsdom 注入 `hljs` 存根，验证 5 个代码块的真实归一路径 + CDN 挂掉时降级不抛异常
+- ⚠️ **踩坑**：`#post-content code` 会匹配到正文里的**行内 `<code>`**（5 个空 class），统计代码块必须用 `#post-content .code-block pre code`
+- ⚠️ `npm run dom` 依赖 mock 固定 fixture，连真实库时会直接报错退出（`config.mock` 判定），不再抛一堆 null 异常
+- mock 新增 `post0000007`「代码高亮语言标记对照」，覆盖全部 5 种形态；归类用「工具链」以免打乱既有分类页断言
+
+| 套件 | mock·local | mock·as-is | 真实库 |
+|---|---|---|---|
+| `smoke` | **84** | **83** | **60**（`POST_ID=tx5vjdhzMBf3`）|
+| `dom` | **63** | **63** | —（mock 专用）|
+| `unit` / `script-test` | **5** / **24** | — | — |
