@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark transition-colors duration-200">
+<%
+// ==================== 数据准备 ====================
+var rootNote = subRoot.note;
+
+var posts = [];
+function processNode(node, depth, maxDepth) {
+  if (depth > maxDepth) return;
+  if (node.getLabelValue('publish') === 'true' && !posts.some(p => p.id === node.noteId)) {
+    var dl = node.getLabelValue('blogDate');
+    posts.push({
+      id: node.noteId,
+      title: node.title,
+      date: dl ? dl.split('T')[0] : (node.dateCreated || '').split(' ')[0],
+      category: node.getLabelValue('blogCategory') || '',
+      summary: node.getLabelValue('blogSummary') || '',
+      tags: node.getLabelValues('blogTags') || [],
+      cover: node.getLabelValue('headerImage') || ''
+    });
+  }
+  if (node.hasChildren()) {
+    node.getChildNotes().forEach(child => processNode(child, depth + 1, maxDepth));
+  }
+}
+rootNote.getVisibleChildNotes().forEach(child => processNode(child, 1, 5));
+posts.sort((a, b) => b.date.localeCompare(a.date));
+// 固定页（shareAlias 命中即视为固定页）
+var fixedPages = ['about'];
+function isFixedPage(currNote) {
+  return fixedPages.indexOf(currNote.getLabelValue('shareAlias')) !== -1;
+}
+
+// 内联 JSON 安全序列化：正文里一旦出现 </script>，会提前闭合 <script> 标签，
+// 导致 BLOG_DATA 被截断、剩余 JSON 泄漏成页面文本（SPA 整体失效）。
+// 在 JSON 字符串里把 < > & 转成 \u00XX 转义，语义完全等价且不再触发 HTML 解析。
+var JSON_ESCAPE = { '<': '\\u003c', '>': '\\u003e', '&': '\\u0026', '\u2028': '\\u2028', '\u2029': '\\u2029' };
+function safeJson(v) {
+  return JSON.stringify(typeof v === 'undefined' ? null : v)
+    .replace(/[<>&\u2028\u2029]/g, function (c) { return JSON_ESCAPE[c]; });
+}
+var site = {
+  name: rootNote.getLabelValue('siteName') || 'Timely',
+  description: rootNote.getLabelValue('siteDescription') || '极简技术博客',
+  icp: rootNote.getLabelValue('siteIcp') || ''
+};
+var blogger = {
+  name: rootNote.getLabelValue('bloggerName') || 'Developer',
+  motto: rootNote.getLabelValue('bloggerMotto') || '热爱技术',
+  bio: rootNote.getLabelValue('bloggerBio') || '全栈开发者',
+  avatar: rootNote.getLabelValue('bloggerAvatarUrl') || '',
+  email: rootNote.getLabelValue('bloggerEmail') || '',
+  github: rootNote.getLabelValue('bloggerGithub') || ''
+};
+var isFixed = isFixedPage(note);
+var isPostPage = (note.noteId !== subRoot.note.noteId && note.getLabelValue('publish') === 'true') || isFixed;
+var postDetail = null;
+if (isPostPage) {
+  var pd = note.getLabelValue('blogDate');
+  var idx = posts.findIndex(p => p.id === note.noteId);
+  postDetail = {
+    date: pd ? pd.split('T')[0] : (note.dateCreated || '').split(' ')[0],
+    category: note.getLabelValue('blogCategory') || '',
+    tags: note.getLabelValues('blogTags') || [],
+    prevPost: idx < posts.length - 1 ? posts[idx + 1] : null,
+    nextPost: idx > 0 ? posts[idx - 1] : null
+  };
+}
+
+%>
+
+<script>
+window.BLOG_DATA = {
+  site: <%- safeJson(site) %>,
+  blogger: <%- safeJson(blogger) %>,
+  posts: <%- safeJson(posts) %>,
+  isPostPage: <%= isPostPage %>,
+  postDetail: <%- safeJson(postDetail) %>,
+  content: <%- safeJson(typeof content !== 'undefined' ? content : '') %>,
+  noteTitle: <%- safeJson(typeof note !== 'undefined' ? note.title : '') %>,
+  fixedPages: <%- safeJson(fixedPages) %>,
+  isFixed: <%- safeJson(isFixed) %>
+};
+</script>
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= isPostPage ? note.title + ' - ' + site.name : site.name %></title>
+  <meta name="description" content="<%= site.description %>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%220.9em%22 font-size=%2290%22>🐠</text></svg>">
+  <link rel="stylesheet" href="https://www.unpkg.com/font-online@1.3.2/css/alibaba-pu-hui-ti-3.online.css">
+  
+  <link href="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.css" rel="stylesheet">
+  <!-- Vue 3 运行时 + 编译器（支持模板字符串编译） -->
+  <script src="https://cdn.jsdmirror.com/npm/vue@3.5.13/dist/vue.global.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/jetbrains-mono@1.0.6/css/jetbrains-mono.min.css">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" rel="stylesheet" id="prism-light">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" id="prism-dark" disabled>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-docker.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-rust.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-go.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <style>
+    ::selection { background-color: #d97706; color: #fff; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #a8a29e; }
+    .dark ::selection { background-color: #f59e0b; color: #18181b; }
+    .dark ::-webkit-scrollbar-thumb { background: #3f3f46; }
+    .dark ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+    pre[class*="language-"] { margin: 0; padding: 1.125rem; border-radius: 0 0 0.75rem 0.75rem; max-height: 24rem; overflow-y: auto; }
+    code[class*="language-"] { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.7; }
+
+    /* 代码块头部 */
+    .code-block { border-radius: 0.75rem; overflow: hidden; border: 1px solid #e7e5e4; margin: 1.75rem 0; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+    .dark .code-block { border-color: #27272a; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .code-header { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 1rem; background: #f5f5f4; border-bottom: 1px solid #e7e5e4; border-radius: 0.75rem 0.75rem 0 0; color: #a8a29e; font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; }
+    .dark .code-header { background: #27272a; border-color: #3f3f46; color: #71717a; }
+    .code-block pre { margin: 0 !important; border-radius: 0 0 0.75rem 0.75rem !important; }
+    .copy-btn { font-size: 0.75rem; cursor: pointer; color: #a8a29e; }
+    .copy-btn:hover { color: #57534e; }
+    .dark .copy-btn:hover { color: #d4d4d8; }
+
+    /* 文章正文 */
+    .prose-content { color: #44403c; font-size: 1rem; line-height: 1.9; word-break: break-word; overflow-wrap: break-word; }
+    .dark .prose-content { color: #d4d4d8; }
+    .prose-content h1, .prose-content h2, .prose-content h3, .prose-content h4, .prose-content h5, .prose-content h6 { font-weight: 700; line-height: 1.35; scroll-margin-top: 5rem; color: #1c1917; }
+    .dark .prose-content h1, .dark .prose-content h2, .dark .prose-content h3, .dark .prose-content h4, .dark .prose-content h5, .dark .prose-content h6 { color: #f4f4f5; }
+    .prose-content h1 { font-size: 1.875rem; margin: 2.5rem 0 1.25rem; }
+    .prose-content h2 { font-size: 1.5rem; margin: 2.5rem 0 1rem; padding: 0.625rem 0 0.5rem 0.875rem; border-bottom: 1px solid #e7e5e4; border-left: 3px solid #d97706; }
+    .dark .prose-content h2 { border-bottom-color: #27272a; border-left-color: #f59e0b; }
+    .prose-content h3 { font-size: 1.25rem; margin: 2rem 0 0.75rem; }
+    .prose-content h4 { font-size: 1.1rem; margin: 1.75rem 0 0.625rem; color: #292524; }
+    .dark .prose-content h4 { color: #e4e4e7; }
+    .prose-content h5 { font-size: 1rem; margin: 1.5rem 0 0.5rem; color: #57534e; }
+    .dark .prose-content h5 { color: #a1a1aa; }
+    .prose-content h6 { font-size: 0.9rem; margin: 1.5rem 0 0.5rem; color: #78716c; text-transform: uppercase; letter-spacing: 0.05em; }
+    .dark .prose-content h6 { color: #71717a; }
+    .prose-content p { margin-bottom: 1.25rem; }
+    .prose-content a { color: #b45309; text-decoration: none; background: linear-gradient(to right, #d97706, #d97706) left bottom / 0 1px no-repeat; transition: background-size 0.25s ease, color 0.15s; }
+    .prose-content a:hover { background-size: 100% 1px; color: #92400e; }
+    .dark .prose-content a { color: #fbbf24; background: linear-gradient(to right, #f59e0b , #f59e0b) left bottom / 0 1px no-repeat; }
+    .dark .prose-content a:hover { background-size: 100% 1px; color: #fcd34d; }
+    .prose-content strong { font-weight: 700; color: #1c1917; }
+    .dark .prose-content strong { color: #f4f4f5; }
+    .prose-content em { font-style: italic; }
+    .prose-content ul, .prose-content ol { padding-left: 1.25rem; margin-bottom: 1.25rem; }
+    .prose-content ul { list-style: none; }
+    .prose-content ul > li { position: relative; padding-left: 1rem; }
+    .prose-content ul > li::before { content: ''; position: absolute; left: 0; top: 0.65em; width: 6px; height: 6px; border-radius: 50%; background: #d97706; }
+    .dark .prose-content ul > li::before { background: #f59e0b; }
+    .prose-content ul > li > ul > li::before { width: 5px; height: 5px; border-radius: 0; background: transparent; border: 1.5px solid #d97706; top: 0.7em; }
+    .dark .prose-content ul > li > ul > li::before { border-color: #f59e0b; }
+    .prose-content ol { list-style: none; counter-reset: prose-ol; }
+    .prose-content ol > li { position: relative; padding-left: 1.5rem; counter-increment: prose-ol; }
+    .prose-content ol > li::before { content: counter(prose-ol) '.'; position: absolute; left: 0; top: 0; font-weight: 600; font-size: 0.875em; color: #d97706; font-family: 'JetBrains Mono', monospace; }
+    .dark .prose-content ol > li::before { color: #f59e0b; }
+    .prose-content li { margin-bottom: 0.375rem; line-height: 1.75; }
+    .prose-content code:not([class*="language-"]) { font-family: 'JetBrains Mono', monospace; font-size: 0.85em; background: #fef3c7; color: #92400e; padding: 0.15em 0.45em; border-radius: 0.3rem; border: 1px solid rgba(217,119,6,0.15); }
+    .dark .prose-content code:not([class*="language-"]) { background: #27272a; color: #fbbf24; border-color: rgba(245,158,11,0.15); }
+    .prose-content hr { border: none; margin: 2.5rem 0; height: 1px; background: linear-gradient(to right, transparent, #d6d3d1 20%, #d6d3d1 80%, transparent); }
+    .dark .prose-content hr { background: linear-gradient(to right, transparent, #3f3f46 20%, #3f3f46 80%, transparent); }
+    .prose-content img { max-width: 100%; border-radius: 0.75rem; margin: 1.75rem 0; cursor: zoom-in; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+    .dark .prose-content img { box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .prose-content figure { margin: 1.75rem 0; text-align: center; }
+    .prose-content figure img { display: inline-block; margin: 0; }
+    .prose-content figcaption { font-size: 0.8rem; color: #78716c; margin-top: 0.75rem; line-height: 1.5; font-style: italic; }
+    .dark .prose-content figcaption { color: #71717a; }
+    .prose-content .image-style-align-right { float: right; margin: 0 0 1rem 1.5rem; }
+    .prose-content .image-style-align-left { float: left; margin: 0 1.5rem 1rem 0; }
+    .prose-content .image-style-align-right img,
+    .prose-content .image-style-align-left img { margin: 0; }
+    .prose-content .image-style-align-right figure,
+    .prose-content .image-style-align-left figure { margin: 0; }
+    .prose-content blockquote { border-left: 3px solid #d97706; background: linear-gradient(135deg, rgba(217,119,6,0.06), rgba(217,119,6,0.02)); padding: 1rem 1.25rem 1rem 1.5rem; margin: 1.75rem 0; border-radius: 0 0.75rem 0.75rem 0; color: #57534e; font-style: italic; }
+    .prose-content blockquote p:last-child { margin-bottom: 0; }
+    .dark .prose-content blockquote { border-left-color: #f59e0b; background: linear-gradient(135deg, rgba(245,158,11,0.08), rgba(245,158,11,0.02)); color: #a1a1aa; }
+    .prose-content table { width: 100%; border-collapse: collapse; margin: 1.75rem 0; font-size: 0.875rem; border-radius: 0.5rem; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border: 1px solid #e7e5e4; }
+    .dark .prose-content table { box-shadow: 0 1px 3px rgba(0,0,0,0.2); border-color: #3f3f46; }
+    .prose-content thead th { padding: 0.875rem 1rem; font-weight: 600; text-align: center; background: linear-gradient(to bottom, #fafaf9, #f5f5f4); border-bottom: 2px solid #d6d3d1; color: #44403c; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; }
+    .dark .prose-content thead th { background: linear-gradient(to bottom, #27272a, #1f1f23); border-bottom-color: #52525b; color: #a1a1aa; }
+    .prose-content tbody tr:not(:last-child) { border-bottom: 1px solid #f5f5f4; }
+    .dark .prose-content tbody tr:not(:last-child) { border-bottom-color: #27272a; }
+    .prose-content tbody tr:hover { background: rgba(217,119,6,0.04); }
+    .dark .prose-content tbody tr:hover { background: rgba(245,158,11,0.06); }
+    .prose-content td { padding: 0.75rem 1rem; color: #57534e; }
+    .dark .prose-content td { color: #a1a1aa; }
+    .prose-content del { color: #a8a29e; text-decoration: line-through; }
+    .dark .prose-content del { color: #52525b; }
+    .prose-content mark { background: #fef08a; color: #1c1917; padding: 0.1em 0.35em; border-radius: 0.2em; }
+    .dark .prose-content mark { background: #854d0e; color: #fef08a; }
+    .prose-content kbd { font-family: 'JetBrains Mono', monospace; font-size: 0.8em; background: #f5f5f4; color: #44403c; border: 1px solid #d6d3d1; border-bottom-width: 2px; border-radius: 0.3rem; padding: 0.1em 0.45em; box-shadow: 0 1px 0 #d6d3d1; }
+    .dark .prose-content kbd { background: #27272a; color: #d4d4d8; border-color: #3f3f46; border-bottom-color: #52525b; box-shadow: 0 1px 0 #3f3f46; }
+    .prose-content dl { margin: 1.25rem 0; }
+    .prose-content dt { font-weight: 600; color: #1c1917; margin-top: 0.75rem; }
+    .dark .prose-content dt { color: #e4e4e7; }
+    .prose-content dd { padding-left: 1.25rem; margin-top: 0.25rem; border-left: 2px solid #e7e5e4; }
+    .dark .prose-content dd { border-left-color: #27272a; }
+    .prose-content input[type="checkbox"] { margin-right: 0.5rem; accent-color: #d97706; vertical-align: middle; transform: scale(1.15); }
+    .dark .prose-content input[type="checkbox"] { accent-color: #f59e0b; }
+    .prose-content li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.25rem; }
+    .prose-content li:has(> input[type="checkbox"])::before { display: none; }
+    .prose-content > :first-child { margin-top: 0; }
+    .prose-content > :last-child { margin-bottom: 0; }
+
+    /* 代码块外 */
+    code:not([class*="language-"]):not(.prose-content code) { font-family: 'JetBrains Mono', monospace; font-size: 0.875em; background: #fef3c7; color: #92400e; padding: 0.125rem 0.375rem; border-radius: 0.25rem; }
+    .dark code:not([class*="language-"]):not(.prose-content code) { background: #3f3f46; color: #fbbf24; }
+
+    .toc-drawer { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
+    .toc-drawer.open { max-height: 15rem; overflow-y: auto; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+
+  <script>
+    (function() {
+      var saved = localStorage.getItem('theme');
+      var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var isDark = saved ? saved === 'dark' : prefersDark;
+      if (!isDark) document.documentElement.classList.remove('dark');
+    })();
+  </script>
+</head>
+
+<body class="min-h-screen bg-stone-50 dark:bg-zinc-950 dark:text-zinc-100 font-sans antialiased">
+  <div class="fixed inset-0 -z-10 overflow-hidden">
+    <div class="absolute inset-0 bg-gradient-to-br from-amber-50/60 via-stone-100/40 to-orange-50/40"></div>
+    <div class="absolute top-0 left-1/4 w-96 h-96 bg-amber-200/30 rounded-full blur-3xl"></div>
+    <div class="absolute top-1/4 right-1/4 w-80 h-80 bg-orange-200/20 rounded-full blur-3xl"></div>
+    <div class="dark:hidden absolute bottom-1/4 left-1/3 w-72 h-72 bg-yellow-100/25 rounded-full blur-3xl"></div>
+  </div>
+  <div id="dark-bg" class="hidden fixed inset-0 -z-10 overflow-hidden">
+    <div class="absolute inset-0 bg-gradient-to-br from-amber-950/50 via-zinc-900/50 to-orange-950/40"></div>
+    <div class="absolute top-0 left-1/4 w-96 h-96 bg-amber-600/8 rounded-full blur-3xl"></div>
+    <div class="absolute top-1/4 right-1/4 w-80 h-80 bg-orange-500/6 rounded-full blur-3xl"></div>
+    <div class="absolute bottom-1/4 left-1/3 w-72 h-72 bg-yellow-500/5 rounded-full blur-3xl"></div>
+  </div>
+  <div id="app"></div>
+
+  <!-- ==================== Vue Templates ==================== -->
+
+  <template id="tpl-skeleton-item">
+    <div class="p-5 md:p-6 rounded-xl bg-white dark:bg-zinc-900/40 border border-stone-200 dark:border-zinc-800/50 animate-pulse">
+      <div class="h-5 bg-stone-200 dark:bg-zinc-800 rounded w-3/4 mb-3"></div>
+      <div class="h-4 bg-stone-100 dark:bg-zinc-800/60 rounded w-full mb-1.5"></div>
+      <div class="h-4 bg-stone-100 dark:bg-zinc-800/60 rounded w-5/6 mb-4"></div>
+      <div class="flex gap-3">
+        <div class="h-3 bg-stone-100 dark:bg-zinc-800/60 rounded w-20"></div>
+        <div class="h-3 bg-stone-100 dark:bg-zinc-800/60 rounded w-16"></div>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-post-card">
+    <article class="group relative">
+      <div class="absolute -inset-px bg-gradient-to-r from-transparent via-stone-200 dark:via-zinc-800/20 to-transparent rounded-xl opacity-0 group-hover:opacity-100 -z-10 transition-opacity"></div>
+      <div class="relative p-5 md:p-6 rounded-xl bg-white/90 dark:bg-zinc-900/70 border border-[#f5f5f4] dark:border-zinc-700/50 hover:border-amber-200/50 dark:hover:border-amber-500/30 shadow-sm hover:shadow-amber-200/20 dark:shadow-amber-950/20 dark:hover:shadow-amber-500/10 transition-all duration-300">
+        <img v-if="cover" :src="cover" alt="" class="w-full h-40 object-cover rounded-lg mb-4" loading="lazy">
+        <h2 class="text-lg md:text-xl font-semibold text-stone-800 dark:text-zinc-100 mb-3 relative z-10">
+          <a :href="'/share/' + post.id" class="hover:text-amber-600 dark:hover:text-accent">{{ post.title }}</a>
+        </h2>
+        <p v-if="post.summary" class="text-sm text-stone-500 dark:text-zinc-400 mb-4 line-clamp-2">{{ post.summary }}</p>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-stone-400 dark:text-zinc-500 relative z-10">
+          <span><i class="fa-regular fa-calendar text-xs mr-1"></i>{{ post.date }}</span>
+          <span v-if="post.category">
+            <a :href="'./#/category/' + encodeURIComponent(post.category)" class="px-2 py-0.5 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs hover:bg-amber-200 dark:hover:bg-accent/20">{{ post.category }}</a>
+          </span>
+          <span v-if="tagList.length" class="flex items-center gap-1 text-[12px] text-stone-400 dark:text-zinc-600">
+            <i class="fa-solid fa-tag"></i>
+            <template v-for="(t, i) in tagList" :key="t">
+              <a :href="'#/tag/' + encodeURIComponent(t)" class="hover:text-amber-600 dark:hover:text-accent">{{ t }}</a>
+              <span v-if="i < tagList.length - 1" class="text-stone-300 dark:text-zinc-600">·</span>
+            </template>
+          </span>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <template id="tpl-home-view">
+    <div class="space-y-4">
+      <div v-if="loading" class="space-y-4">
+        <skeleton-item v-for="n in 6" :key="n" />
+      </div>
+      <div v-else class="space-y-4">
+        <post-card v-for="p in posts" :key="p.id" :post="p" />
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-archive-view">
+    <div>
+      <div class="mb-8">
+        <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100 mb-2">归档</h1>
+        <p class="text-stone-400 dark:text-zinc-400">共 {{ posts.length }} 篇文章</p>
+      </div>
+      <div class="space-y-8">
+        <div v-for="(months, year) in yearsMap" :key="year">
+          <h2 class="text-xl font-bold text-stone-800 dark:text-zinc-100 mb-4 sticky top-14 bg-stone-100/90 dark:bg-zinc-900/60 dark:border-zinc-700/50 dark:py-2 dark:px-3 dark:rounded-lg z-10 backdrop-blur">{{ year }}</h2>
+          <div class="space-y-6">
+            <div v-for="(monthPosts, month) in months" :key="month">
+              <h3 class="text-sm font-medium text-stone-400 dark:text-zinc-400 mb-3">{{ MONTHS[month] }}</h3>
+              <div class="space-y-2">
+                <a v-for="p in monthPosts" :key="p.id" :href="'./' + p.id" class="flex items-center gap-4 py-2 px-3 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800/60 group">
+                  <span class="text-xs font-mono text-stone-400 dark:text-zinc-500 w-8">{{ String(new Date(p.date).getDate()).padStart(2, '0') }}</span>
+                  <span class="flex-1 text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100">{{ p.title }}</span>
+                  <span v-if="p.category" class="text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded hidden sm:inline">{{ p.category }}</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-tags-view">
+    <div>
+      <div class="mb-8">
+        <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100 mb-2">标签</h1>
+        <p class="text-stone-400 dark:text-zinc-400">共 {{ tags.length }} 个标签</p>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <a v-for="t in tags" :key="t.name" :href="'#/tag/' + encodeURIComponent(t.name)"
+           class="group inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900/60 border border-[#f5f5f4] dark:border-zinc-700 rounded-xl text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent hover:border-amber-300 dark:hover:border-amber-500/50 transition-colors">
+          <i class="fa-solid fa-tag text-xs text-stone-400 dark:text-zinc-500 group-hover:text-amber-600 dark:group-hover:text-accent"></i>
+          <span>{{ t.name }}</span>
+          <span class="text-xs px-1.5 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-full text-stone-400 dark:text-zinc-400">{{ t.count }}</span>
+        </a>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-tag-view">
+    <div>
+      <div class="mb-6">
+        <div class="flex items-center gap-3 mb-2">
+          <i class="fa-solid fa-tag text-amber-600 dark:text-accent"></i>
+          <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100">标签：{{ tag }}</h1>
+        </div>
+        <p class="text-stone-400 dark:text-zinc-400">共 {{ filtered.length }} 篇文章</p>
+        <a href="#/tags" class="inline-flex items-center gap-1 mt-3 text-sm text-stone-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent">
+          <i class="fa-solid fa-arrow-left text-xs"></i>所有标签
+        </a>
+      </div>
+      <div class="space-y-4">
+        <post-card v-for="p in filtered" :key="p.id" :post="p" />
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-category-view">
+    <div>
+      <div class="mb-6">
+        <div class="flex items-center gap-3 mb-2">
+          <i class="fa-solid fa-folder text-amber-600 dark:text-accent"></i>
+          <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100">分类：{{ cat }}</h1>
+        </div>
+        <p class="text-stone-400 dark:text-zinc-400">共 {{ filtered.length }} 篇文章</p>
+      </div>
+      <div class="space-y-4">
+        <post-card v-for="p in filtered" :key="p.id" :post="p" />
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-about-view">
+    <div class="space-y-6">
+      <div class="p-6 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50">
+        <div class="flex items-start gap-6">
+          <img :src="blogger.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(blogger.name)" class="w-20 h-20 rounded-full border-2 border-stone-200 dark:border-zinc-700" alt="avatar">
+          <div>
+            <h2 class="text-xl font-bold text-stone-800 dark:text-zinc-100 mb-2">{{ blogger.name }}</h2>
+            <p class="text-stone-500 dark:text-zinc-400">{{ blogger.bio }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="p-6 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50">
+        <h2 class="text-lg font-bold text-stone-800 dark:text-zinc-100 mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-code text-amber-600 dark:text-accent"></i>技术栈
+        </h2>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div v-for="s in blogger.techStack" :key="s" class="flex items-center gap-2 p-3 rounded-lg bg-stone-50 dark:bg-zinc-800/50">
+            <i class="fa-solid fa-check text-amber-600 dark:text-accent text-sm"></i>
+            <span class="text-stone-600 dark:text-zinc-300">{{ s }}</span>
+          </div>
+        </div>
+      </div>
+      <div v-if="blogger.github || blogger.email" class="p-6 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50">
+        <h2 class="text-lg font-bold text-stone-800 dark:text-zinc-100 mb-4 flex items-center gap-2">
+          <i class="fa-solid fa-link text-amber-600 dark:text-accent"></i>联系方式
+        </h2>
+        <div class="flex flex-wrap gap-3">
+          <a v-if="blogger.github" :href="blogger.github" target="_blank" rel="noopener"
+             class="flex items-center gap-2 px-4 py-2 bg-stone-100 dark:bg-zinc-800 rounded-lg hover:bg-stone-200 dark:hover:bg-zinc-700 transition-colors">
+            <i class="fa-brands fa-github text-lg"></i><span>GitHub</span>
+          </a>
+          <a v-if="blogger.email" :href="'mailto:' + blogger.email"
+             class="flex items-center gap-2 px-4 py-2 bg-stone-100 dark:bg-zinc-800 rounded-lg hover:bg-stone-200 dark:hover:bg-zinc-700 transition-colors">
+            <i class="fa-solid fa-envelope text-lg"></i><span>{{ blogger.email }}</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-not-found-view">
+    <div class="text-center py-24">
+      <div class="text-8xl font-bold text-stone-200 dark:text-zinc-800 mb-4">404</div>
+      <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100 mb-3">页面不存在</h1>
+      <p class="text-stone-500 dark:text-zinc-400 mb-8">你访问的页面已失效或不存在</p>
+      <a href="./#/" class="inline-flex items-center gap-2 px-6 py-3 bg-amber-600 dark:bg-accent text-white dark:text-zinc-900 rounded-xl hover:bg-amber-700 dark:hover:bg-amber-500 font-medium transition-colors">
+        <i class="fa-solid fa-house"></i>返回首页
+      </a>
+    </div>
+  </template>
+
+  <template id="tpl-app-header">
+    <div>
+      <header class="sticky top-0 z-50 h-14 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border-b border-[#f5f5f4] dark:border-zinc-700/50 shadow-sm dark:shadow-zinc-950/20">
+        <div class="max-w-[100rem] mx-auto px-5 sm:px-8 xl:px-10 h-full flex items-center justify-between">
+          <a href="./" class="flex items-center gap-2 text-base font-bold text-stone-800 dark:text-zinc-100 hover:text-amber-600 dark:hover:text-accent transition-colors">
+            <i class="fa-solid fa-terminal text-amber-600 dark:text-accent"></i>
+            <span>{{ site.name }}</span>
+          </a>
+          <div class="flex items-center gap-1">
+            <nav class="hidden md:flex items-center gap-0.5 mr-2">
+              <a href="./" :class="['px-3 py-1.5 text-sm font-medium rounded-md transition-all', routeName === 'home' ? 'text-stone-800 dark:text-zinc-100 bg-stone-100 dark:bg-zinc-800' : 'text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800']">首页</a>
+              <div class="relative">
+                <button @click.stop="catOpen = !catOpen" :class="['flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-md transition-all', routeName === 'category' ? 'text-stone-800 dark:text-zinc-100 bg-stone-100 dark:bg-zinc-800' : 'text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800']">
+                  <span>分类</span><i class="fa-solid fa-chevron-down text-[10px]"></i>
+                </button>
+                <div v-if="catOpen" class="absolute top-full left-0 mt-1 min-w-48 bg-white dark:bg-zinc-900 border border-[#f5f5f4] dark:border-zinc-700 rounded-xl shadow-lg py-2 z-50 max-h-80 overflow-y-auto">
+                  <template v-if="cats.length">
+                    <a v-for="c in cats" :key="c.name" :href="'./#/category/' + encodeURIComponent(c.name)" @click="catOpen = false"
+                       class="flex items-center justify-between px-3 py-2 mx-1 rounded-lg text-sm text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 hover:text-amber-600 dark:hover:text-accent group transition-colors">
+                      <span class="truncate flex-1 mr-2">{{ c.name }}</span>
+                      <span class="text-xs font-medium px-1.5 py-0.5 rounded-full bg-stone-100 dark:bg-zinc-800 text-stone-400 dark:text-zinc-400 group-hover:bg-amber-100 group-hover:text-amber-600 dark:group-hover:bg-accent/10 dark:group-hover:text-accent transition-colors shrink-0">{{ c.count }}</span>
+                    </a>
+                  </template>
+                  <span v-else class="block px-4 py-3 text-xs text-stone-400 dark:text-zinc-500">暂无分类</span>
+                </div>
+              </div>
+              <a href="./#/tags" :class="['px-3 py-1.5 text-sm font-medium rounded-md transition-all', routeName === 'tags' || routeName === 'tag' ? 'text-stone-800 dark:text-zinc-100 bg-stone-100 dark:bg-zinc-800' : 'text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800']">标签</a>
+              <a href="./#/archive" :class="['px-3 py-1.5 text-sm font-medium rounded-md transition-all', routeName === 'archive' ? 'text-stone-800 dark:text-zinc-100 bg-stone-100 dark:bg-zinc-800' : 'text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800']">归档</a>
+              <a href="./about" :class="['px-3 py-1.5 text-sm font-medium rounded-md transition-all', routeName === 'about' ? 'text-stone-800 dark:text-zinc-100 bg-stone-100 dark:bg-zinc-800' : 'text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800']">关于</a>
+            </nav>
+            <button @click="$emit('toggle-search')" class="p-2 text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800 rounded-md transition-all">
+              <i class="fa-solid fa-magnifying-glass"></i>
+            </button>
+            <button @click="toggleTheme" class="p-2 text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800 rounded-md transition-all">
+              <i :class="isDarkMode ? 'fa-solid fa-sun' : 'fa-solid fa-moon'"></i>
+            </button>
+          </div>
+        </div>
+      </header>
+      <nav class="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-zinc-900 border-t border-[#f5f5f4] dark:border-zinc-800 flex justify-around py-2">
+        <a href="./" :class="['flex flex-col items-center gap-0.5 px-4 py-1 text-xs', routeName === 'home' ? 'text-amber-600 dark:text-accent' : 'text-stone-500 dark:text-zinc-400']"><i class="fa-solid fa-house text-sm"></i><span>首页</span></a>
+        <a href="./#/archive" :class="['flex flex-col items-center gap-0.5 px-4 py-1 text-xs', routeName === 'archive' ? 'text-amber-600 dark:text-accent' : 'text-stone-500 dark:text-zinc-400']"><i class="fa-solid fa-folder text-sm"></i><span>归档</span></a>
+        <a href="./#/tags" :class="['flex flex-col items-center gap-0.5 px-4 py-1 text-xs', routeName === 'tags' || routeName === 'tag' ? 'text-amber-600 dark:text-accent' : 'text-stone-500 dark:text-zinc-400']"><i class="fa-solid fa-tags text-sm"></i><span>标签</span></a>
+        <a href="./about" :class="['flex flex-col items-center gap-0.5 px-4 py-1 text-xs', routeName === 'about' ? 'text-amber-600 dark:text-accent' : 'text-stone-500 dark:text-zinc-400']"><i class="fa-solid fa-user text-sm"></i><span>关于</span></a>
+      </nav>
+    </div>
+  </template>
+
+  <template id="tpl-app-sidebar">
+    <aside class="hidden lg:block sticky top-[2.5rem] self-start w-[270px] shrink-0 space-y-4">
+      <!-- 博主信息（始终显示） -->
+      <div class="p-5 rounded-xl bg-white dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/50">
+        <div class="flex items-start gap-3 mb-4">
+          <img :src="blogger.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=' + encodeURIComponent(blogger.name)" class="w-14 h-14 rounded-full border-2 border-stone-200 dark:border-zinc-700 shrink-0" alt="avatar">
+          <div class="min-w-0">
+            <h3 class="text-base font-bold text-stone-800 dark:text-zinc-100 truncate">{{ blogger.name }}</h3>
+            <p class="text-xs text-amber-600 dark:text-accent mt-0.5 truncate">{{ blogger.motto }}</p>
+          </div>
+        </div>
+        <p class="text-xs text-stone-500 dark:text-zinc-400 leading-relaxed">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{{ blogger.bio }}</p>
+        <div class="flex items-center justify-center gap-4 pt-3 border-t border-stone-200 dark:border-zinc-800/50">
+          <a v-if="blogger.github" :href="blogger.github" target="_blank" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-brands fa-github text-base"></i></a>
+          <a v-if="blogger.email" :href="'mailto:' + blogger.email" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-solid fa-envelope text-base"></i></a>
+          <a href="/rss.xml" target="_blank" class="text-stone-400 dark:text-zinc-500 hover:text-stone-800 dark:hover:text-zinc-100"><i class="fa-solid fa-rss text-base"></i></a>
+        </div>
+      </div>
+      <!-- 标签列表 -->
+      <div v-if="!(G.isPostPage && G.tocHeadings.length > 1)" class="rounded-xl bg-white dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/50 overflow-hidden">
+        <button @click="tagsOpen = !tagsOpen" class="w-full flex items-center justify-between px-4 py-3 text-left">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-tags text-stone-400 dark:text-zinc-500 text-sm"></i>
+            <span class="text-xs font-semibold text-stone-700 dark:text-zinc-200">标签</span>
+          </div>
+          <i :style="{ transform: tagsOpen ? 'rotate(180deg)' : '' }" class="fa-solid fa-chevron-down text-stone-400 dark:text-zinc-500 text-[10px] transition-transform"></i>
+        </button>
+        <div v-show="tagsOpen" class="border-t border-stone-100 dark:border-zinc-800/50 px-4 py-3">
+          <div class="flex flex-wrap gap-1.5">
+            <a v-for="t in tagList" :key="t.name" :href="'./#/tag/' + encodeURIComponent(t.name)"
+               :class="['text-xs px-2.5 py-1 rounded-full transition-colors', G.route.params.tag === t.name ? 'bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent' : 'bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent']">
+              {{ t.name }} <span class="text-stone-400 dark:text-zinc-400">{{ t.count }}</span>
+            </a>
+          </div>
+        </div>
+      </div>
+      <!-- 文章目录（仅详情页显示） -->
+      <div v-if="G.isPostPage && G.tocHeadings.length > 1" class="rounded-xl bg-white dark:bg-zinc-900/60 border border-[#f5f5f4] dark:border-zinc-800/50 overflow-hidden">
+        <div class="px-4 py-3 border-b border-stone-100 dark:border-zinc-800/50 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-list text-stone-400 dark:text-zinc-500 text-sm"></i>
+            <span class="text-xs font-semibold text-stone-700 dark:text-zinc-200">目录</span>
+          </div>
+          <button @click="G.tocCollapsed.value = !G.tocCollapsed.value" class="p-1 text-stone-400 dark:text-zinc-500 hover:text-amber-600 dark:hover:text-accent transition-colors">
+            <i :class="['fa-solid text-xs transition-transform', G.tocCollapsed.value ? 'fa-plus' : 'fa-minus']"></i>
+          </button>
+        </div>
+        <div v-show="!G.tocCollapsed.value" class="px-4 py-3">
+          <template v-for="h in G.tocTree" :key="h.id">
+            <div>
+              <div class="flex items-center gap-1">
+                <a :href="'#' + h.id" @click.prevent="scrollTo(h.id)" :class="['text-sm py-1 transition-colors flex-1', h.active ? 'text-amber-600 dark:text-accent font-medium' : 'text-stone-400 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent']">
+                  {{ h.text }}
+                </a>
+                <button v-if="h.children.length" @click="h.collapsed = !h.collapsed" class="p-0.5 text-stone-400 dark:text-zinc-500 hover:text-amber-600 dark:hover:text-accent transition-colors">
+                  <i :class="['fa-solid fa-chevron-right text-[8px] transition-transform', h.collapsed ? '' : 'rotate-90']"></i>
+                </button>
+              </div>
+              <div v-if="h.children.length && !h.collapsed" class="pl-4 border-l border-stone-200 dark:border-zinc-700/50 ml-1">
+                <a v-for="c in h.children" :key="c.id" :href="'#' + c.id" @click.prevent="scrollTo(c.id)" :class="['flex items-center gap-1 text-sm py-1 transition-colors', c.active ? 'text-amber-600 dark:text-accent font-medium' : 'text-stone-400 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent']">
+                  {{ c.text }}
+                </a>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </aside>
+  </template>
+
+  <template id="tpl-app-footer">
+    <footer class="border-t border-stone-200 dark:border-zinc-800 py-2">
+      <div class="max-w-[100rem] mx-auto px-5 sm:px-8 xl:px-10 flex items-center justify-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
+        <div>© {{ year }} {{ site.name }}. All rights reserved.</div>
+        <a v-if="site.icp" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener" class="text-sky-600 dark:text-sky-400 hover:underline">{{ site.icp }}</a>
+      </div>
+    </footer>
+  </template>
+
+  <template id="tpl-post-detail-view">
+    <div class="max-w-[100rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14 dark:bg-zinc-900/50 rounded-xl">
+      <article>
+        <header v-if="!isFixed" class="mb-8 pb-6 border-b border-stone-200 dark:border-zinc-800">
+          <h1 class="text-2xl md:text-3xl font-bold text-stone-800 dark:text-zinc-100 mb-4 leading-tight">{{ title }}</h1>
+          <div class="flex flex-wrap items-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
+            <span><i class="fa-regular fa-calendar mr-1"></i>{{ detail?.date }}</span>
+            <a v-if="detail?.category" :href="'./#/category/' + encodeURIComponent(detail.category)" class="px-2 py-1 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs font-medium">{{ detail.category }}</a>
+            <div v-if="detail?.tags?.length" class="flex items-center gap-2">
+              <i class="fa-solid fa-tags text-xs"></i>
+              <a v-for="t in detail.tags" :key="t" :href="'./#/tag/' + encodeURIComponent(t)" class="text-xs text-stone-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent">{{ t }}</a>
+            </div>
+          </div>
+        </header>
+        <!-- 移动端 TOC -->
+        <div class="lg:hidden mb-6" v-if="G.tocHeadings.length > 1">
+          <button @click="mobileTocOpen = !mobileTocOpen" class="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50 text-sm text-stone-600 dark:text-zinc-300">
+            <span><i class="fa-solid fa-list mr-2"></i>文章目录</span>
+            <i :class="['fa-solid fa-chevron-down text-xs transition-transform', mobileTocOpen ? 'rotate-180' : '']"></i>
+          </button>
+          <div v-show="mobileTocOpen" class="toc-drawer open mt-2 p-4 rounded-xl bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800/50 max-h-60 overflow-y-auto">
+            <template v-for="h in G.tocTree" :key="'m' + h.id">
+              <a :href="'#' + h.id" @click.prevent="scrollTo(h.id); mobileTocOpen = false"
+                 :class="['block text-sm py-1', h.active ? 'text-amber-600 dark:text-accent font-medium' : 'text-stone-400 dark:text-zinc-400']">
+                {{ h.text }}
+              </a>
+              <template v-for="c in h.children" :key="'m' + c.id">
+                <a :href="'#' + c.id" @click.prevent="scrollTo(c.id); mobileTocOpen = false"
+                   :class="['block text-sm py-1 pl-4', c.active ? 'text-amber-600 dark:text-accent font-medium' : 'text-stone-400 dark:text-zinc-400']">
+                  {{ c.text }}
+                </a>
+              </template>
+            </template>
+          </div>
+        </div>
+        <div id="post-content" class="prose-content min-h-[17dvh]" ref="contentEl" v-html="content"></div>
+        <nav v-if="!isFixed" class="grid grid-cols-2 gap-4 mt-10 pt-6 border-t border-[#f5f5f4] dark:border-zinc-800">
+          <a v-if="detail?.prevPost" :href="'./' + detail.prevPost.id" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl">
+            <div class="text-xs text-stone-400 dark:text-zinc-500 mb-2"><i class="fa-solid fa-arrow-left"></i> 上一篇</div>
+            <div class="text-sm font-medium text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100 line-clamp-2">{{ detail.prevPost.title }}</div>
+          </a>
+          <div v-else class="p-4 rounded-xl border border-dashed border-[#f5f5f4] dark:border-zinc-800 flex items-center justify-center text-sm text-stone-400 dark:text-zinc-600">已是最新一篇</div>
+          <a v-if="detail?.nextPost" :href="'./' + detail.nextPost.id" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl text-right">
+            <div class="text-xs text-stone-400 dark:text-zinc-500 mb-2">下一篇 <i class="fa-solid fa-arrow-right"></i></div>
+            <div class="text-sm font-medium text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100 line-clamp-2">{{ detail.nextPost.title }}</div>
+          </a>
+          <div v-else class="p-4 rounded-xl border border-dashed border-[#f5f5f4] dark:border-zinc-800 flex items-center justify-center text-sm text-stone-400 dark:text-zinc-600">已是最后一篇</div>
+        </nav>
+      </article>
+    </div>
+  </template>
+
+  <template id="tpl-search-modal">
+    <div v-if="searchOpen" class="fixed inset-0 z-[100]" style="display:flex">
+      <div class="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm" @click="close"></div>
+      <div class="absolute top-[20%] left-1/2 -translate-x-1/2 w-full max-w-lg px-4 z-10">
+        <div class="bg-white dark:bg-zinc-900 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl overflow-hidden shadow-2xl">
+          <div class="flex items-center gap-3 px-4 py-3 border-b border-[#f5f5f4] dark:border-zinc-800">
+            <i class="fa-solid fa-magnifying-glass text-stone-400 dark:text-zinc-500"></i>
+            <input ref="inputEl" v-model="q" @keydown="onKey" type="text" placeholder="搜索文章..." autofocus class="flex-1 bg-transparent text-stone-800 dark:text-zinc-100 outline-none text-base">
+            <button @click="close" class="text-stone-400 dark:text-zinc-500"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div class="max-h-80 overflow-y-auto py-2">
+            <div v-if="q && !results.length" class="px-4 py-8 text-center text-stone-400 text-sm">
+              <i class="fa-solid fa-magnifying-glass text-xl mb-2 block opacity-50"></i>没有找到相关文章
+            </div>
+            <template v-else>
+              <a v-for="(p, i) in results" :key="p.id" :href="'./' + p.id" @click="close"
+                 :class="['block px-4 py-3 transition-colors', selected === i ? 'bg-stone-100 dark:bg-zinc-800' : 'hover:bg-stone-100 dark:hover:bg-zinc-800']">
+                <div class="font-medium text-stone-800 dark:text-zinc-100">{{ p.title }}</div>
+                <div v-if="p.summary" class="text-xs text-stone-400 dark:text-zinc-500 mt-1 line-clamp-2">{{ p.summary.substring(0, 80) }}</div>
+                <div class="text-xs text-stone-400 dark:text-zinc-500 mt-1">{{ p.date }}{{ p.category ? ' · ' + p.category : '' }}</div>
+              </a>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-back-to-top">
+    <button @click="scrollTop" :class="['fixed bottom-24 md:bottom-8 right-6 z-50 w-10 h-10 bg-stone-200 dark:bg-zinc-800 text-stone-500 dark:text-zinc-400 rounded-full shadow-lg transition-all cursor-pointer', visible ? 'opacity-100' : 'opacity-0 pointer-events-none']">
+      <i class="fa-solid fa-arrow-up"></i>
+    </button>
+  </template>
+
+  <template id="tpl-lightbox">
+    <div v-if="lightboxOpen" class="fixed inset-0 z-[200] bg-black/80 items-center justify-center cursor-zoom-out" style="display:flex" @click="close">
+      <img :src="lightboxSrc" class="max-w-[90vw] max-h-[90vh] rounded-lg object-contain" alt="" @click.stop>
+    </div>
+  </template>
+
+  <template id="tpl-app-root"><div class="flex flex-col min-h-screen"><div id="reading-progress" class="fixed top-0 left-0 h-0.5 bg-gradient-to-r from-amber-600 to-amber-400 dark:from-amber-500 dark:to-yellow-400 z-[9999] transition-all" :style="{ width: progress + '%' }"></div><app-header @toggle-search="G.searchOpen.value = true"></app-header><div class="flex-1 flex flex-col max-w-[100rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14"><div class="flex-1 grid lg:grid-cols-[1fr_270px] lg:items-start gap-10 xl:gap-12"><main id="main-scroll" class="min-w-0" ref="mainEl"></main><app-sidebar></app-sidebar></div></div><div class="mt-auto"><app-footer class="py-4"></app-footer></div><search-modal></search-modal><back-to-top></back-to-top><lightbox></lightbox></div></template>
+
+<script src="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.js"></script>
+</body>
+</html>
