@@ -41,7 +41,8 @@ addNote(
       label('bloggerBio', '全栈开发者，关注前后端与基础设施。'),
       label('bloggerEmail', 'me@example.com'),
       label('bloggerGithub', 'https://github.com/example'),
-      // 资源兜底：CDN 挂了回退到这两份 code 笔记
+      // 线上会有这两个关系（Trilium 托管主题资源），主题不读它们，
+      // 保留 mock 是为了对齐真实笔记结构：加了关系也不应输出任何回退属性
       relation('shareCss', 'themeCss0001'),
       relation('shareJs', 'themeJs0001'),
     ],
@@ -49,17 +50,17 @@ addNote(
   null,
 );
 
-/* ---- 主题资源 code 笔记（模拟 Trilium 里托管的那两份，不出现在导航） ---- */
+/* ---- 主题资源 code 笔记（线上 Trilium 托管的那两份，不出现在导航） ---- */
 addNote(
   { noteId: 'themeCss0001', title: 'timely-theme.css', type: 'code', mime: 'text/css', attributes: [label('shareHiddenFromTree', '')] },
   'root0000blog',
 );
-content.set('themeCss0001', '/* mock 兜底 CSS：CDN 加载失败时才会用到 */\n:root { --mock-fallback-css: 1; }\n');
+content.set('themeCss0001', '/* 主题 CSS 副本 */\n:root { --mock-hosted-css: 1; }\n');
 addNote(
   { noteId: 'themeJs0001', title: 'timely-theme.js', type: 'code', mime: 'text/javascript', attributes: [label('shareHiddenFromTree', '')] },
   'root0000blog',
 );
-content.set('themeJs0001', '/* mock 兜底 JS */\nwindow.__MOCK_FALLBACK_JS__ = 1;\n');
+content.set('themeJs0001', '/* 主题 JS 副本 */\nwindow.__MOCK_HOSTED_JS__ = 1;\n');
 
 /* ---- 文章容器（模拟分组，用来验证递归遍历） ---- */
 addNote({ noteId: 'folder000001', title: '2026', type: 'book' }, 'root0000blog');

@@ -10,6 +10,7 @@
  *   C. 路由与标题锚点不打架（锚点 hash 不触发回顶部 / 不触发 404 路由）
  *   D. 拼写回归（不得再出现 fiexd）
  *   E. 主题静态资源可访问
+ *   F. 资源加载策略（无自动回退，CDN 地址保留）
  */
 
 import fs from 'node:fs';
@@ -184,25 +185,13 @@ for (const [file, typeHint] of [[config.cssFile, /^text\/css/], [config.jsFile, 
   check(`GET /theme/${file} → 200 且 MIME 正确`, res.status === 200 && typeHint.test(ct), `status=${res.status} ct=${ct}`);
 }
 
-// ---- F. CDN 兜底 ----
-console.log('\nF. CDN 回退（~shareCss / ~shareJs 关系）');
-const relCss = (home.body.match(/onerror="this\.onerror=null;this\.href='([^']+)'"/) || [])[1];
-const relJs = (home.body.match(/s\.src='([^']+)';document\.head\.appendChild/) || [])[1];
-if (!relCss && !relJs) {
-  console.log('  ! 未配置 ~shareCss / ~shareJs 关系，跳过（可选配置，主流程不受影响）');
-} else {
-  check('CSS 回退地址已注入', !!relCss, '未在页面里找到 css onerror');
-  check('JS 回退地址已注入', !!relJs, '未在页面里找到 js onerror');
-  for (const [label, rel, typeHint] of [
-    ['CSS', relCss, /^text\/css/],
-    ['JS', relJs, /javascript/],
-  ]) {
-    if (!rel) continue;
-    const res = await fetch(`${BASE}${PREFIX}/${rel}`);
-    const ct = res.headers.get('content-type') || '';
-    check(`${label} 回退地址可用（${rel}）`, res.status === 200 && typeHint.test(ct), `status=${res.status} ct=${ct}`);
-  }
-}
+// ---- F. 资源加载策略 ----
+console.log('\nF. 资源加载策略（人工发布 CDN，不做自动回退）');
+check('页面无 CSS onerror 回退', !home.body.includes('onerror="this.onerror=null'), '检测到 css 回退属性');
+check('页面无 JS 兜底注入脚本', !/onerror="\(function\(\)\{var s=document\.createElement/.test(home.body), '检测到 js 兜底属性');
+const ejsSrc = fs.readFileSync(path.join(config.themeDir, config.ejsFile), 'utf8');
+check('源码里主题资源指向 CDN（发布形态）', /cdn\.jsdmirror\.com\/gh\/[^"']+\/timely-theme\.(css|js)/.test(ejsSrc), 'EJS 里未找到 CDN 链接');
+check('本地渲染已替换成本地资源', `${PREFIX}/theme/${config.cssFile}`.length > 0 && home.body.includes(`/theme/${config.cssFile}`), '渲染结果里未找到本地主题资源');
 
 /* ------------------------------------------------------------------ */
 
