@@ -373,14 +373,16 @@ var year = new Date().getFullYear();
     </header>
 
     <!-- ==================== 主体 ==================== -->
-    <% /* ⚠️ 容器宽度 100rem(1600px) → 92.5rem(1480px)。
-           原因：1600px 时容器贴满视口（两侧留白 0），而右侧被侧栏+间距占掉 318px，
-           导致「正文列视觉重心」比视口中心偏左 159px —— 观感就是「右侧空白比左侧大、
-           整体不居中」。收窄到 1480px 后整块（正文+间距+侧栏）左右各留白 60px 对称。
-           ⚠️ 这个值被 CSS 里 aside.aside-fixed 的 left / top 公式引用，改这里要同步改那边
-              （smoke L 段有守卫会报错）。 */ %>
-    <div class="flex-1 flex flex-col max-w-[98rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 pb-28 md:pb-14">
-      <div class="flex-1 grid lg:grid-cols-[1fr_270px] lg:items-start gap-10 xl:gap-12">
+    <% /* ⚠️ 容器宽度 100rem(1600px) → 92.5rem(1480px) → 98rem(1568px)。
+           原因：1600px 时容器贴满视口（两侧留白 0），而右侧被侧栏 + 间距占掉一大块，
+           导致「正文列视觉重心」比视口中心偏左 —— 观感就是「右侧空白比左侧大、
+           整体不居中」。收窄后整块（正文 + 间距 + 侧栏）两侧留白对称。
+           ⚠️ 这个值被 CSS 里 aside.aside-fixed 的 left 公式引用，改这里要同步改那边
+              （smoke L 段有守卫会报错）。
+           ⚠️ grid 右列宽必须 ≥ aside 实际宽（w-[340px]），否则正文列与侧栏重叠；
+              两者与 CSS 的 --layout-aside 应保持一致。 */ %>
+    <div class="flex-1 flex flex-col max-w-[98rem] mx-auto w-full px-5 sm:px-8 xl:px-10 py-10 md:pb-14">
+      <div class="flex-1 grid lg:grid-cols-[1fr_340px] lg:items-start gap-10 xl:gap-12">
         <main id="main" class="min-w-0">
 <% if (isPostPage) { %>
 
@@ -388,10 +390,11 @@ var year = new Date().getFullYear();
           <% /* 内边距原本是两层：外层主体容器一层 + 这里一层（旧版 tpl-post-detail-view
                根节点自带整套 px/py，Vue 把它挂进带内边距的 <main id="main-scroll">，视觉上两层）。
                ⚠️ 水平 px 两层必须保留：去掉会明显变紧（正文贴边）—— 这是此前修过的真实回归。
-               ⚠️ 垂直**上**内边距已去掉（py-10 → pt-0）：它会让正文比右侧侧栏低 40px，
-                  顶部明显错位。去掉后正文顶边 = 外层容器的 py-10 → 与侧栏同为 96px。
-                  底部 pb-28 md:pb-14 保留不变。 */ %>
-          <div class="max-w-[98rem] mx-auto w-full px-5 sm:px-8 xl:px-10 pt-0 pb-28 md:pb-14 dark:bg-zinc-900/50 rounded-xl">
+               ⚠️ 垂直上内边距 pt-8（2rem = 32px，当前定稿）：
+                  正文顶边 = header 56 + 外层 py-10 40 + 32 = 128px，比右侧侧栏（top 96px）低 32px。
+                  若改回 pt-0 则两者齐平（96px）—— 这是「详情页顶部留白」与「与侧栏顶边对齐」
+                  之间的取舍；改值时同步更新 smoke 的对应断言。 */ %>
+          <div class="max-w-[98rem] mx-auto w-full px-5 sm:px-8 xl:px-10 pt-8 pb-28 md:pb-14 dark:bg-zinc-900/50 rounded-xl">
             <article>
               <% if (!isFixed) { %>
               <header class="mb-8 pb-6 border-b border-stone-200 dark:border-zinc-800">
@@ -600,8 +603,8 @@ var year = new Date().getFullYear();
               ⚠️ fixed 的代价：脱离文档流后不再自动对齐 grid 列，得自己算水平位置。
                  公式（已在 1024 / 1200 / 1279 / 1280 / 1600 / 1920 / 2560 七个宽度
                  逐一验算，与 grid 布局逐像素一致）：
-                   左偏移 = 容器居中偏移 + 容器内容宽 − 270（卡片自身宽）
-                 其中 容器内容宽 = min(100vw, 92.5rem) − 2×内边距，
+                   左偏移 = 容器居中偏移 + 容器内容宽 − 340（卡片自身宽）
+                 其中 容器内容宽 = min(100vw, 98rem) − 2×内边距，
                  min()/max() 让它在「容器未满宽」与「容器已满宽居中」两种情形下都成立。
                  垂直：top = 6rem（header 3.5rem/56px + 容器 py-10 2.5rem/40px），
                  不要加"呼吸间距"——96px 本身已含 header 到卡片的净间距。
@@ -610,9 +613,9 @@ var year = new Date().getFullYear();
                  （Tailwind 产物没有这些任意值/函数类）。
                  容器宽度、内边距、gap、aside 宽度若改动，公式要同步改 —— smoke L 段有守卫。
 
-              保留 w-[270px] / shrink-0 供 Tailwind 断点类判断；self-start 已无意义
+              保留 w-[340px] / shrink-0 供 Tailwind 断点类判断；self-start 已无意义
               （fixed 元素不参与 grid 布局），故移除以避免误导。 */ %>
-        <aside class="hidden lg:block w-[270px] shrink-0 space-y-4 aside-fixed">
+        <aside class="hidden lg:block w-[340px] shrink-0 space-y-4 aside-fixed">
           <div class="p-5 md:p-6 rounded-xl bg-white dark:bg-zinc-900/60 border border-stone-200 dark:border-zinc-800/50">
             <div class="flex items-start gap-3 mb-4">
               <img src="<%- esc(avatarUrl) %>" class="w-14 h-14 rounded-full border-2 border-stone-200 dark:border-zinc-700 shrink-0" alt="avatar">

@@ -1,17 +1,17 @@
 # TimelyBlogTheme 重构计划清单
 
-> 汇总自代码审查 + Trilium 官方文档核对 + share-tool 实测复现。
-> 验证环境：`D:/share-tool`（`ETAPI_MOCK=1` 假数据 / 填 `.env` 后用真实库），存盘即热重载。
+> 汇总自代码审查 + Trilium 官方文档核对 + share-tool 实测复现。  
+> 验证环境：`D:/share-tool`（`ETAPI_MOCK=1` 假数据 / 填 `.env` 后用真实库），存盘即热重载。  
 > 每阶段独立可验证，做完一项勾一项，**不跨阶段混改**。
 
 ## 工作流约定（两条硬规则）
 
 1. **三阶段流程（用户决策，EJS 里两套写法并存）**：
-   | 阶段 | EJS 生效写法 | share-tool |
-   |---|---|---|
+   | 阶段           | EJS 生效写法                                                                       | share-tool                                                   |
+   | ------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
    | ① **开发**（当前） | `note.getRelations("shareCss"/"shareJs")` → `api/notes/<id>/download`；CDN 注释保留 | `ASSET_MODE=local`（默认）→ 重写成本地 `TimelyBlogTheme.css/.js`，存盘即见 |
-   | ② **预览** | **不动**（CSS/JS 已上传进 Trilium） | `ASSET_MODE=as-is` → 保持原样，验证 Trilium 托管的文件渲染是否正常 |
-   | ③ **上线** | 注释掉两段 shareCss/shareJs 循环，启用 CDN `<link>`/`<script>` | 同上；想本地看效果再切回 `local` |
+   | ② **预览**     | **不动**（CSS/JS 已上传进 Trilium）                                                    | `ASSET_MODE=as-is` → 保持原样，验证 Trilium 托管的文件渲染是否正常             |
+   | ③ **上线**     | 注释掉两段 shareCss/shareJs 循环，启用 CDN `<link>`/`<script>`                           | 同上；想本地看效果再切回 `local`                                         |
    - 原因：`shareCss`/`shareJs` 方式**访问需要登录**，不适合外网；外网一律走 CDN
    - `~shareCss` / `~shareJs` 关系**必须勾「可继承」**，否则子页面取不到
 2. **不主动 push**：我不执行 `npm run push` / 任何 ETAPI 写操作，也不碰 GitHub。本地验证通过后由**你手动**推送。我只做「改代码 + 本地渲染验证 + 报告结果」。
@@ -31,7 +31,7 @@
 
 ## 阶段 1 · 安全修（不动架构，最小 diff）✅ 已完成（2026-09-30）
 
-> 目标：消掉会导致页面挂掉 / 明显错乱的硬伤。改完本地验证通过后，**由你手动** push。
+> 目标：消掉会导致页面挂掉 / 明显错乱的硬伤。改完本地验证通过后，**由你手动** push。  
 > 验证：`cd D:/share-tool && ETAPI_MOCK=1 npm run smoke` → **25 项全通过**。
 
 - [x] **1.1 `</script>` 注入（P0）** — EJS 里新增 `safeJson()`，把 JSON 串里的 `< > & U+2028 U+2029` 转成 `\u00XX` 转义，`site` / `blogger` / `posts` / `postDetail` / `content` / `noteTitle` / `fixedPages` / `isFixed` 全部改走它
@@ -41,13 +41,13 @@
 - [x] **1.4 初始锚点滚动打架** — 新增 `isAnchorHash()`：标题锚点（`#heading-x`）**不参与路由、不回顶部、不触发 hashchange 重渲染**；路由 hash 才 `scrollTo(0)`。判定收进 `updateRoute()` 内部，任何调用方都安全
 
 顺手修的（share-tool，非主题问题）：
+
 - `ETAPI_MOCK=1` 时不再读 `.env` 里的真实 `ROOT_NOTE_ID`（否则预取失败、首页空、子页全 404）
 - 新增 `npm run smoke`：主题回归断言（转义 / 标题 / 路由锚点 / 拼写 / 静态资源）
 
-
 ## 阶段 2 · 样式出 EJS + CDN 策略优化
 
-> 目标：EJS 只留数据 + 结构。
+> 目标：EJS 只留数据 + 结构。  
 > **资源引用三阶段（用户决策）**：见顶部「三阶段流程」。EJS 里同时保留两套写法 —— 开发/预览期用 `note.getRelations("shareCss"/"shareJs")` → `api/notes/<id>/download`，上线形态（CDN）以注释保留在旁。代码里**不做任何自动回退 / 环境判断**。
 
 - [x] ~~2.2 资源改 `~shareCss` / `~shareJs`~~ — 原「淘汰 CDN、全量内迁」方案撤销；现改为**双形态并存**（见上方决策）
@@ -74,42 +74,43 @@
 
 ## 阶段 3 · 去 Vue 改 SSR（最大一刀）✅ 已完成（2026-09-30）
 
-> 目标：`Trilium 渲染空壳 → Vue 客户端重画` 改成 `Trilium 直接吐内容，JS 只做交互`。
+> 目标：`Trilium 渲染空壳 → Vue 客户端重画` 改成 `Trilium 直接吐内容，JS 只做交互`。  
 > 实测（mock 4 篇文章）：
-> | 指标 | 前 | 后 |
-> |---|---|---|
-> | 主题 JS | 676 行 / 24.4KB（Vue 应用） | 478 行 / 18.6KB（原生脚本，**有效行 553 → 397**） |
-> | 文章页 HTML | 37.5KB | **23.8KB（−36%）** |
-> | 首页 HTML | 36.4KB | 39.9KB（+9.5%，因为归档/标签/404 也变成真实标记，换来 hash 切换零渲染） |
-> | 首次渲染依赖 | `vue.global.js` 500KB+ 下载后才出内容 | 无（HTML 到达即内容；**爬虫也能读到正文**） |
-> 验证：`npm run smoke` **38 项**（服务端渲染结果）+ `npm run dom` **46 项**（jsdom 真实行为），`local` / `as-is` 两种资源模式均全通过。
+>
+> | 指标                                                                                                     | 前                              | 后                                               |
+> | ------------------------------------------------------------------------------------------------------ | ------------------------------ | ----------------------------------------------- |
+> | 主题 JS                                                                                                  | 676 行 / 24.4KB（Vue 应用）         | 478 行 / 18.6KB（原生脚本，**有效行 553 → 397**）          |
+> | 文章页 HTML                                                                                               | 37.5KB                         | **23.8KB（−36%）**                                |
+> | 首页 HTML                                                                                                | 36.4KB                         | 39.9KB（+9.5%，因为归档/标签/404 也变成真实标记，换来 hash 切换零渲染） |
+> | 首次渲染依赖                                                                                                 | `vue.global.js` 500KB+ 下载后才出内容 | 无（HTML 到达即内容；**爬虫也能读到正文**）                      |
+> | 验证：`npm run smoke` **38 项**（服务端渲染结果）+ `npm run dom` **46 项**（jsdom 真实行为），`local` / `as-is` 两种资源模式均全通过。 |                                |                                                 |
 
-- [x] **3.1 列表/标签/归档/分类页改 EJS 循环输出** — 首页卡片、归档（年→月→日）、标签总览全部服务端渲染；
+- [x] **3.1 列表/标签/归档/分类页改 EJS 循环输出** — 首页卡片、归档（年→月→日）、标签总览全部服务端渲染；  
   标签/分类的**文章列表改为克隆首页卡片**（`data-post-id` / `data-category` / `data-tags`），不再额外下发一份 HTML
 - [x] **3.2 详情页 `<%- content %>`** — 正文由 Trilium 渲染好直接输出（`#post-content`）
 - [x] **3.3 卡片复用** — 卡片标记在模板里只出现一次（首页循环），标签/分类页复用同一份 DOM，无需 partial
 - [x] **3.4 原生 JS 接管交互（实测 478 行，有效行 397）**
-  | 功能 | 实现 |
-  |---|---|
-  | 明/暗切换 | JS 只管翻转 `html.dark` + 落盘；图标切换与深色背景层改由 CSS(`.dark`) 驱动，零 JS |
-  | 折叠面板（标签/目录/目录分组/移动端目录） | 统一 `[data-toggle="id"]` + `hidden` + `aria-expanded`，箭头旋转交给 CSS |
-  | 标签/归档/分类筛选 | hash 路由切换 `<section data-view-panel>` 显隐 + 克隆卡片 |
-  | 搜索弹窗 | 索引从 `<script type="application/json">` 读，结果用 DOM API 构造（`textContent`，无 innerHTML 拼接） |
-  | 代码块复制、灯箱、外链、目录高亮 | 原生 DOM，逻辑沿用；无 clipboard API 时退回 `execCommand` |
-  | 阅读进度、回到顶部 | 合并为一个 rAF 节流的 scroll 监听 |
-  | 导航高亮 | `aria-current="page"` + `body[data-view]`，样式在 CSS 里用颜色变量实现 |
+  | 功能                     | 实现                                                                                    |
+  | ---------------------- | ------------------------------------------------------------------------------------- |
+  | 明/暗切换                  | JS 只管翻转 `html.dark` + 落盘；图标切换与深色背景层改由 CSS(`.dark`) 驱动，零 JS                            |
+  | 折叠面板（标签/目录/目录分组/移动端目录） | 统一 `[data-toggle="id"]` + `hidden` + `aria-expanded`，箭头旋转交给 CSS                       |
+  | 标签/归档/分类筛选             | hash 路由切换 `<section data-view-panel>` 显隐 + 克隆卡片                                       |
+  | 搜索弹窗                   | 索引从 `<script type="application/json">` 读，结果用 DOM API 构造（`textContent`，无 innerHTML 拼接） |
+  | 代码块复制、灯箱、外链、目录高亮       | 原生 DOM，逻辑沿用；无 clipboard API 时退回 `execCommand`                                         |
+  | 阅读进度、回到顶部              | 合并为一个 rAF 节流的 scroll 监听                                                               |
+  | 导航高亮                   | `aria-current="page"` + `body[data-view]`，样式在 CSS 里用颜色变量实现                            |
 - [x] **3.5 TOC 锚点挪服务端** — 模板内自实现 slug（中文保留），服务端给正文标题补 `id` 并建目录树
   - ⚠️ **纠正**：Trilium 的模板 locals **没有 `utils`**，官方 `page.ejs` 也是自己内联 `slugify` —— 不能依赖 `utils.slugifyHeadings`
   - ⚠️ **行为变化**：锚点由 `#heading-0`（序号）改为 `#问题`（标题文本），旧书签失效；同时 `#` 链接可读性、SEO 更好
-- [ ] **3.6 EJS 拆 partials** — **暂缓**：`include('name')` 需要模板笔记下挂 `application/x-ejs` 子笔记（Trilium 侧手工建），
+- [ ] **3.6 EJS 拆 partials** — **暂缓**：`include('name')` 需要模板笔记下挂 `application/x-ejs` 子笔记（Trilium 侧手工建），  
   且 share-tool 还要补 `includer`。当前卡片已无重复标记，收益有限，留待需要时再做
 
 ---
 
 ## 阶段 4 · 收尾优化
 
-> 4.1 ~ 4.5 是「Vue 时代」的问题，阶段 3 去 Vue 时已顺带解决，保留记录。
-> 4.6 ~ 4.9 已完成（2026-09-30）。验证：`npm run smoke` **58 项**（mock·local）/ **57 项**（mock·as-is）/ **43 项**（真实库），
+> 4.1 ~ 4.5 是「Vue 时代」的问题，阶段 3 去 Vue 时已顺带解决，保留记录。  
+> 4.6 ~ 4.9 已完成（2026-09-30）。验证：`npm run smoke` **58 项**（mock·local）/ **57 项**（mock·as-is）/ **43 项**（真实库），  
 > `npm run dom` **46 项**，`npm run script-test` **24 项**，全通过。
 
 - [x] **4.1 派生数据只算一次** — 聚合改为模板里算一次（`tagCount` / `catCount` / `archive`），导航、侧边栏、标签页、归档页共用
@@ -119,16 +120,16 @@
 - [x] **4.4 删首页骨架屏假延迟** — SSR 后首屏即内容，`setTimeout(300)` 与骨架屏标记一并删除
 - [x] **4.5 observer / listener 生命周期** — 不再有「路由切换销毁重建组件」的场景（页面级渲染），IntersectionObserver 只在一页内创建一次；scroll 监听已合并为单个 rAF 节流
 - [x] **4.6 补 OG / Twitter meta** — 按 Trilium 官方属性实现，模板侧自己算（默认 `page.ejs` 的特征不继承）：
-  | 属性 | 输出 |
-  |---|---|
-  | `#shareDescription` | `<meta name="description">` + `og:description` + `twitter:description`（无则：文章页用 `#blogSummary`，列表页用 `#siteDescription`） |
-  | `#shareOpenGraphURL` | `og:url` + `twitter:url` |
-  | `#shareOpenGraphDomain` | `twitter:domain` |
-  | `#shareOpenGraphImage` / `~shareOpenGraphImage` | `og:image` + `twitter:image`；label 值原样用，relation 指向 File 笔记 → `api/notes/<id>/download`；都为空时回退文章 `#headerImage` |
-  | `#shareOpenGraphColor` | `theme-color` |
-  | `#shareDisallowRobotIndexing` | `<meta name="robots" content="noindex, follow">`（只有该笔记有） |
-  | 新增 `#siteUrl` | `og:image` / `og:url` 的相对地址按它补成绝对地址（OG 要求绝对 URL），未设则原样输出 |
-  | 其余 | `og:site_name` / `og:title` / `og:type`（文章 article、列表 website）/ `twitter:card`（有图 `summary_large_image`，无图 `summary`）/ `twitter:title` |
+  | 属性                                              | 输出                                                                                                                                     |
+  | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+  | `#shareDescription`                             | `<meta name="description">` + `og:description` + `twitter:description`（无则：文章页用 `#blogSummary`，列表页用 `#siteDescription`）                 |
+  | `#shareOpenGraphURL`                            | `og:url` + `twitter:url`                                                                                                               |
+  | `#shareOpenGraphDomain`                         | `twitter:domain`                                                                                                                       |
+  | `#shareOpenGraphImage` / `~shareOpenGraphImage` | `og:image` + `twitter:image`；label 值原样用，relation 指向 File 笔记 → `api/notes/<id>/download`；都为空时回退文章 `#headerImage`                        |
+  | `#shareOpenGraphColor`                          | `theme-color`                                                                                                                          |
+  | `#shareDisallowRobotIndexing`                   | `<meta name="robots" content="noindex, follow">`（只有该笔记有）                                                                               |
+  | 新增 `#siteUrl`                                   | `og:image` / `og:url` 的相对地址按它补成绝对地址（OG 要求绝对 URL），未设则原样输出                                                                               |
+  | 其余                                              | `og:site_name` / `og:title` / `og:type`（文章 article、列表 website）/ `twitter:card`（有图 `summary_large_image`，无图 `summary`）/ `twitter:title` |
 - [x] **4.7 `#shareHiddenFromTree`** — 清单已写进 EJS 顶部（EJS 注释，不进页面字节）：模板 / CSS / JS / favicon 四份笔记都挂上。**Trilium 侧需你手动加标签**
 - [x] **4.8 `~shareFavicon` 关系** — 指向 File 笔记 → `api/notes/<id>/download`；优先级 `#shareFavicon`（完整 URL）> `~shareFavicon` 关系 > 内置 emoji data-URI；需勾「可继承」才能在各子页面生效
 - [x] **4.9 `templateScript.js` 修三处** — 重写：
@@ -137,9 +138,9 @@
   - `note.save()` 挪进 `publish === 'true'` 分支；`blogDate` 判空再写；摘要按需加省略号（≤120 字不加）
   - 顺带：`&nbsp;` 与常见实体还原、剥离顺序修正
   - 新增 `npm run script-test`（24 项）：用 `new Function('api', src)` + 打桩 note 复刻 Trilium 脚本环境
-- [x] **4.6' 双重转义 BUG（新发现，P1）** — 全量 `<%= esc(x) %>` 会被 EJS 再转义一次（`&` → `&amp;`），
-  标题/描述含 `&`、`<`、`'` 时页面出现 `&amp;amp;` / `&amp;#39;`，favicon data-URI 直接变 `&amp;lt;svg` 而失效。
-  修法：所有 `<%= esc(...) %>` / `<%= enc(...) %>` → `<%- esc(...) %>` / `<%- enc(...) %>`（共 40+ 处）。
+- [x] **4.6' 双重转义 BUG（新发现，P1）** — 全量 `<%= esc(x) %>` 会被 EJS 再转义一次（`&` → `&amp;`），  
+  标题/描述含 `&`、`<`、`'` 时页面出现 `&amp;amp;` / `&amp;#39;`，favicon data-URI 直接变 `&amp;lt;svg` 而失效。  
+  修法：所有 `<%= esc(...) %>` / `<%= enc(...) %>` → `<%- esc(...) %>` / `<%- enc(...) %>`（共 40+ 处）。  
   smoke 加双重转义守卫 + mock 里塞入含 `& < >` 的站点简介与文章标题做正向断言。
 - [ ] **4.10 目录结构（可选，B 方案）** — `TimelyBlogTheme/src/` 放三个主题文件，`文章模版.html` / `templateScript.js` 留根；代价是 `.env` 加 `EJS_FILE=src/...` 等两行
 - [ ] **4.11 主题 JS 是 `type="module"` 但内容为传统写法** — 阶段③ 切 CDN 时 `<script src>` 不带 module，两者都能跑（已用 `readyState` 判断）；若保留 module，注意 Trilium 侧 JS 笔记 MIME 必须为 `text/javascript`
@@ -148,36 +149,37 @@
 
 ## 阶段 5 · 真实数据联调修复（2026-09-30 下午）
 
-> 背景：`share-tool` 第一次连**真实库**（`note.yihwang.top` / 根 `p3wjHYobxcWH`）跑，暴露出 3 个只有真实数据才会踩到的问题。
+> 背景：`share-tool` 第一次连**真实库**（`note.yihwang.top` / 根 `p3wjHYobxcWH`）跑，暴露出 3 个只有真实数据才会踩到的问题。  
 > 之前几轮的「实测数据」其实跑的是 mock（当时 4321 实例是 `ETAPI_MOCK=1` 起的），所以没暴露。
 
 - [x] **5.1 🔴 首页列表空了（P0，阶段 4.3 引入的回归）**
   - 现象：真实库首页 `共 0 篇文章`，一篇都列不出来
-  - 根因：`collect()` 递归用了 `getVisibleChildNotes()`，而 `#shareHiddenFromTree` 的语义只是
+  - 根因：`collect()` 递归用了 `getVisibleChildNotes()`，而 `#shareHiddenFromTree` 的语义只是  
     **「不出现在分享树的左侧导航」**，不等于「不是文章」。你博客里 5 篇文章都带这个标签 → 全被过滤
   - 佐证：旧版（线上 Vue 版）递归用的就是 `getChildNotes()`，只有根节点用 `getVisibleChildNotes()`；线上 `/share/rWETtjGJtS3W` 返回 200 说明这些笔记确实已共享
-  - 修法：递归与根都改回 `getChildNotes()`。文章唯一判据是 `#publish=true`；真实 Trilium 的 shaca 只装已共享笔记，
+  - 修法：递归与根都改回 `getChildNotes()`。文章唯一判据是 `#publish=true`；真实 Trilium 的 shaca 只装已共享笔记，  
     所以 `getChildNotes()` 就等于分享子树，模板/CSS 副本等没有 `#publish` 的笔记自然被过滤
-  - 回归：smoke 加「隐藏于树的已发布文章仍在列表里」+「源码里必须用 `rootNote.getChildNotes()`」
+  - 回归：smoke 加「隐藏于树的已发布文章仍在列表里」+「源码里必须用 `rootNote.getChildNotes()`」  
     （mock 里把 `post0000003` 标上 `#shareHiddenFromTree`）
 - [x] **5.2 ETAPI 正文被自动 `JSON.parse`（P1，share-tool）**
   - 现象：canvas 笔记的正文渲染成字符串 `[object Object]`
-  - 根因：`etapi.js` 的 `request()` 对所有响应无条件 `JSON.parse`。canvas（Excalidraw）笔记的正文本身就是合法 JSON
+  - 根因：`etapi.js` 的 `request()` 对所有响应无条件 `JSON.parse`。canvas（Excalidraw）笔记的正文本身就是合法 JSON  
     （`{"type":"excalidraw",...}`）→ 被解析成对象 → `store.content` 里 `String(obj)` 得 `[object Object]`
-  - 修法：`request()` 加 `raw` 选项，`getNoteContent` 走 `{ raw: true }` 原样返回字符串
+  - 修法：`request()` 加 `raw` 选项，`getNoteContent` 走 `{ raw: true }` 原样返回字符串  
     （任何「内容本身是合法 JSON」的文本笔记同样中招，不只是 canvas）
   - 回归：新增 `npm run unit`（`tools/unit-test.js`），用打桩 fetch 断言正文返回字符串、元数据接口仍解析对象
 - [x] **5.3 canvas（Excalidraw）笔记支持（share-tool）**
-  - 实测线上 Trilium 对 canvas 笔记的输出（不是下发场景 JSON，而是渲染成图片）：
+  - 实测线上 Trilium 对 canvas 笔记的输出（不是下发场景 JSON，而是渲染成图片）：  
     `<img src="api/images/<noteId>/<encodeURIComponent(title)>?<utcDateModified>">`
-  - share-tool 对齐该标记；`/api/images/:id/*` 路由已存在，本地返回一张占位 SVG
+  - share-tool 对齐该标记；`/api/images/:id/*` 路由已存在，本地返回一张占位 SVG  
     （本地不模拟 Excalidraw 绘制，属已知差异）
   - 现在真实库 `/share/rWETtjGJtS3W` 的输出与线上逐字节一致
 - [x] **5.4 顺手修 smoke 的两处假报**
   - `F` 段「子页面」写死 `post0000001`：真实库没这篇 → 整段无意义失败；改为用 `POST_ID`，取不到 200 时明确跳过
-  - `G` 段「渲染结果里不再出现 fiexd」：真实库文章《基于 Trilium Note…》正文里本来就在讲 `fiexdPages` 这个笔误
+  - `G` 段「渲染结果里不再出现 fiexd」：真实库文章《基于 Trilium Note…》正文里本来就在讲 `fiexdPages` 这个笔误  
     → 误报；改为 mock 专用，源码级断言保持无条件
   - 新增 `I` 段：canvas 笔记专项（5 项）
+
 
 **真实库实测（`POST_ID=HvzRWi2r9bUh`，有 `<h2>` 的那篇）**
 
@@ -439,6 +441,7 @@ Trilium 输出的 `<code>` class 是 **MIME 形式**，实测 5 种形态，Pris
   **不存在"再留一点呼吸"这一项**。→ **推导出来的"应该正好是多少"的断言，一律用 `===`，别用 `≥`。**
 - 可视化验证：`mockups/sidebar-sticky-mockup.html` —— 与主题同参数（header 56px / **`top: 6rem`(96px)** /
   `left` 公式 / `max-height calc(100vh - 6rem - 1.5rem)`），左侧塞 8 张卡片制造滚动，可直接目视确认「一动不动」。
+
 
 | 套件 | mock·local | mock·as-is | 真实库 |
 |---|---|---|---|

@@ -121,7 +121,7 @@
 .dark ::selection { background-color: #f59e0b; color: #18181b; }
 .dark ::-webkit-scrollbar-thumb { background: #3f3f46; }
 .dark ::-webkit-scrollbar-thumb:hover { background: #52525b; }
-pre[class*="language-"] { margin: 0; padding: 1.125rem; border-radius: 0 0 0.75rem 0.75rem; max-height: 24rem; overflow-y: auto; }
+pre[class*="language-"] { margin: 0; padding: 0; border-radius: 0 0 0.75rem 0.75rem; max-height: 24rem; overflow-y: auto; }
 code[class*="language-"] { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.7; }
 
 /* 代码块头部 */
@@ -286,7 +286,7 @@ code:not([class*="language-"]):not(.prose-content code) { font-family: 'JetBrain
  * 手写样式统一放文件末尾 banner 段内：Tailwind 重建会覆盖前面的部分。
  * ========================================================================== */
 pre code.hljs { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.7; }
-pre:has(> code.hljs) { margin: 0; padding: 1.125rem; border-radius: 0 0 0.75rem 0.75rem; max-height: 24rem; overflow-y: auto; }
+pre:has(> code.hljs) { margin: 0; padding: 0; border-radius: 0 0 0.75rem 0.75rem; max-height: 24rem; overflow-y: auto; }
 /* 容器底色（与 .code-header 配套：浅色 stone-50 / 暗色 zinc-900） */
 .code-block pre { background-color: #fafaf9; }
 .dark .code-block pre { background-color: #18181b; }
@@ -333,12 +333,12 @@ article h1 .post-icon { font-size: 1em; }
  *   公式（已在 1024 / 1200 / 1279 / 1280 / 1600 / 1920 / 2560 七个宽度逐一验算，
  *   与 grid 布局逐像素一致）：
  *
- *     left = 容器居中偏移 + 容器内容宽 − 卡片宽(270px)
- *          = max(0, (100vw − 92.5rem)/2)         ← mx-auto 居中偏移
- *            + min(100vw, 92.5rem) − 2×内边距     ← 容器内容宽
- *            − 270px                              ← 减去卡片自身宽度
+ *     left = 容器居中偏移 + 容器内容宽 − 卡片宽(340px)
+ *          = max(0, (100vw − 98rem)/2)           ← mx-auto 居中偏移
+ *            + min(100vw, 98rem) − 2×内边距       ← 容器内容宽
+ *            − 340px                              ← 减去卡片自身宽度
  *
- *   化简后：left = 容器居中偏移 + 容器内容区右边缘 − 270px
+ *   化简后：left = 容器居中偏移 + 容器内容区右边缘 − 340px
  *   妙处：结果与 grid 的 gap 无关（gap 只影响左列宽度，不影响右列位置），
  *        所以改 gap 不用动这里。
  *
@@ -356,12 +356,12 @@ article h1 .post-icon { font-size: 1em; }
  *        曾写成 7rem(112px) 多加 16px → 用户报「比初始高度矮了大概 16px」。
  *
  * ⚠️ 依赖的上游值（改任一处，下面 top / left 公式要同步改；smoke L 段有守卫）：
- *     · 容器 max-width  92.5rem (1480px)  ← EJS: max-w-[92.5rem]
+ *     · 容器 max-width  98rem (1568px)    ← EJS: max-w-[98rem]
  *       （收窄自 100rem：原值在 1600px 视口贴满，右侧被侧栏占掉 318px 显得不居中）
  *     · 容器内边距      sm:2rem / xl:2.5rem ← EJS: px-5 sm:px-8 xl:px-10
  *     · 容器竖向内边距  py-10 = 2.5rem     ← EJS: 主体容器的 py-10
  *     · 两列断点        lg = 64rem (1024px) ← aside 是 hidden lg:block
- *     · 卡片宽度        270px             ← EJS: w-[270px]
+ *     · 卡片宽度        340px             ← EJS: w-[340px]
  *     · header 高度     3.5rem (56px)     ← EJS: h-14
  *
  * ⚠️ 高度上限同步按新 top 推导：
@@ -382,7 +382,7 @@ article h1 .post-icon { font-size: 1em; }
  * -------------------------------------------------------------------------- */
 :root {
   --layout-container: 98rem;   /* 容器总宽 ← EJS: max-w-[98rem] */
-  --layout-aside: 270px;       /* 侧栏宽   ← EJS: w-[270px] / grid-cols-[1fr_270px] */
+  --layout-aside: 340px;       /* 侧栏宽   ← EJS: w-[340px] / grid-cols-[1fr_340px] */
   --layout-top: 6rem;          /* 侧栏顶边 ← header 3.5rem(56px) + 容器 py-10 2.5rem(40px) = 96px */
 }
 
