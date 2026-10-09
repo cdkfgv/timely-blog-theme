@@ -1,20 +1,23 @@
 {
-  "name": "trilium-theme",
+  "name": "timely-blog-theme",
   "version": "1.0.0",
   "private": true,
-  "description": "Trilium Notes 分享主题（Tailwind v4 构建）+ 本地预览/测试工具（ETAPI 真实数据渲染）",
+  "description": "Trilium Notes 分享主题 TimelyBlogTheme（Tailwind v4 构建 + terser 压缩产出 dist/）+ 本地预览/测试工具",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "build": "tailwindcss -i ./theme/src/input.css -o ./theme/TimelyBlogTheme.css --minify",
+    "build": "npm run build:css && npm run dist",
+    "build:css": "tailwindcss -i ./theme/src/input.css -o ./theme/TimelyBlogTheme.css --minify",
     "dev": "tailwindcss -i ./theme/src/input.css -o ./theme/TimelyBlogTheme.css --watch --minify",
+    "dist": "node dev/tools/build-dist.js",
     "start": "node dev/server.js",
     "serve": "node --watch dev/server.js",
     "state": "node dev/tools/state.js",
     "smoke": "node dev/tools/smoke.js",
     "dom": "node dev/tools/dom-test.js",
+    "dom:dist": "node dev/tools/dom-test.js --dist",
     "unit": "node dev/tools/unit-test.js",
     "script-test": "node dev/tools/script-test.js",
     "push": "node dev/tools/push-theme.js"
@@ -25,6 +28,7 @@
   "devDependencies": {
     "@tailwindcss/cli": "^4.2.2",
     "jsdom": "^30.1.1",
-    "tailwindcss": "^4.2.2"
+    "tailwindcss": "^4.2.2",
+    "terser": "^5.51.2"
   }
 }

@@ -750,3 +750,86 @@ header 内层、主体容器、详情页内层、页脚内层。
 4. 跑 smoke 核对联动值
 
 ⚠️ **`TimelyBlogTheme.css` 是产物，不要再直接编辑**。
+
+---
+
+## 阶段 11：改名 `timely-blog-theme` + 压缩发布产物 `dist/` ✅（2026-10-09）
+
+### 11.1 改名（只到项目层）
+
+- 目录：`D:/trilium-theme` → `D:/timely-blog-theme`（与 CDN 仓库 `cdkfgv/timely-theme` 命名对齐）
+- `package.json` 的 `name`、根 `README.md`、`dev/README.md` 内的路径同步
+- **主题文件名不动**：仍是 `theme/TimelyBlogTheme.ejs|css|js`。
+  理由：`~shareTemplate` 指向的 Trilium 笔记内容与本地文件名无关，但改名要连带改
+  `dev/config.js` 默认值 + smoke/dom 的文件名断言，收益为零。
+  CDN 侧的改名（`timely-theme.*`）本来就由 `dist/` 承担。
+
+### 11.2 为什么新增 `dist/` 而不是就地压缩
+
+`theme/TimelyBlogTheme.js` 是**手写源**（531 行），就地压缩会丢掉唯一可读版本；
+而 CDN 上文件名是 `timely-theme.*`，与本仓库不同名。
+`dist/` 一次解决「保留可读源」+「按 CDN 命名」+「只管发布产物」三件事。
+
+| 输入 | 处理 | 输出 |
+|---|---|---|
+| `theme/TimelyBlogTheme.css` | Tailwind 已用 lightningcss 压缩 → **原样拷贝** | `dist/timely-theme.css` |
+| `theme/TimelyBlogTheme.js` | **terser**（`ecma:5` + `mangle` + `passes:3`） | `dist/timely-theme.js` |
+
+CSS 不二次处理是刻意的：保持与 `theme/TimelyBlogTheme.css` **逐字节一致**，
+这样既有的 smoke 样式断言（读同一份 CSS）对 dist 同样成立。
+
+### 11.3 ⚠️ 为什么没用 esbuild（踩坑）
+
+原计划用 esbuild（快、单二进制）。实装时它的 postinstall 就失败在
+`spawnSync(node.exe, [node_modules/esbuild/bin/esbuild, --version])` → **EBUSY（errno -4082）**；
+单独测 `spawnSync(process.execPath, ['--version'])` 同样 EBUSY ——
+**本机沙箱 / 腾讯 Ztsm EDR 禁止 spawn 子进程**。
+esbuild 的 JS API 运行时同样要 fork 平台二进制 → 就算装上也无法运行，更无法验证。
+
+→ 换 **terser**：纯 JS、**进程内**运行、不 spawn；`ecma: 5` 与源码的 ES5 约束一致；
+压缩率还更好（`20.4 KB → 10.4 KB`，**-49.1%**，gzip 3.9 KB）。
+
+### 11.4 产物守卫（`dev/tools/build-dist.js`，任一不过非零退出）
+
+1. CSS 必须是 Tailwind 压缩产物（banner + 单行压缩体）—— 否则说明构建漏了 `--minify`
+2. CSS 关键声明存活：`--layout-aside` / `--layout-container` / `aside.aside-fixed`
+3. JS 压缩后语法可解析（`new Function`）、单行、体积必须小于源
+4. JS **9 个选择器字面量**必须全部存活（`theme-toggle` / `hljs-light` / `hljs-dark` /
+   `search-modal` / `reading-progress` / `back-to-top` / `data-view-panel` / `data-toc-jump` / `data-toggle`）
+   —— terser 只改标识符不动字符串，所以源里有、压缩后就该还在；掉一个页面静默失灵
+
+### 11.5 踩坑：Tailwind v4 的 minify 产物**不是单行**
+
+`/*! tailwindcss v4.3.3 | MIT License | ... */` 后面跟一个 `\n`，再是压缩体 —— 共 **2 行**（LF 位置 = 65）。
+最初的守卫写成「`trimEnd().split('\n').length === 1`」→ 误报「不是压缩产物」。
+正确判据：**剥掉 banner 行后只剩一行**。
+
+### 11.6 `dom:dist` —— 证明压缩没改变行为
+
+`dev/tools/dom-test.js` 支持 `--dist`：同一批断言、同一份脚本，只把被测文件从
+`theme/TimelyBlogTheme.js` 换成 `dist/timely-theme.js`。
+
+```
+npm run dom        → 63 项全通过（theme/ 手写源）
+npm run dom:dist   → 63 项全通过（dist/ 压缩产物）
+```
+
+### 11.7 测试（改名 + 压缩后，零回归）
+
+| 套件 | mock·local | mock·as-is | 真实库 |
+|---|---|---|---|
+| `smoke` | **135** | **134** | **109**（`POST_ID=HvzRWi2r9bUh`）|
+| `dom` / `dom:dist` | **63** / **63** | — | — |
+| `unit` / `script-test` | **5** / **24** | — | — |
+
+### 11.8 新工作流
+
+```bash
+npm run dev        # 开发：Tailwind watch，预览读 theme/ 未压缩源
+npm run build      # ① build:css（Tailwind --minify） ② dist（terser 压缩打包）
+npm run dom:dist   # 发布前：用压缩产物再跑一遍 dom 断言
+# → 把 dist/timely-theme.css|js 原样上传 CDN（同名，无需改名）
+```
+
+⚠️ `dist/` 已进 `.gitignore`（完全可由 `theme/` 复现）；**只有 `npm run build` 会刷新它**，
+`npm run dev` 不刷新 —— 上线前别忘 build。

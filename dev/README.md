@@ -1,6 +1,6 @@
 # dev —— 本地预览与测试工具
 
-> 这是 **trilium-theme** 仓库的 `dev/` 子目录，在本地复现 Trilium 的分享（share）渲染流程，
+> 这是 **timely-blog-theme** 仓库的 `dev/` 子目录，在本地复现 Trilium 的分享（share）渲染流程，
 > 让改主题（`theme/`）时不必先复制进 Trilium 就能看效果。
 > 仓库总览、构建方式与发布流程见 [根 README](../README.md)。
 
@@ -20,7 +20,7 @@
 `theme/` 与 `dev/` 不再各自 `npm install`。
 
 ```bash
-cd D:/trilium-theme
+cd D:/timely-blog-theme
 npm install
 
 cp dev/.env.example dev/.env     # Windows: copy dev\.env.example dev\.env
@@ -112,9 +112,16 @@ npm run push                   # 满意后推回 Trilium 的 EJS/CSS/JS 三个 c
 
 ```bash
 npm run smoke          # 服务端渲染结果断言（默认打 4321；BASE=... 可换端口）
-npm run dom            # jsdom 里真实执行主题 JS，验交互行为
+npm run dom            # jsdom 里真实执行主题 JS（theme/ 手写源），验交互行为
 npm run unit           # 纯逻辑单测（ETAPI 客户端等，不需要起服务）
 npm run script-test    # templateScript.js（Trilium 属性变更脚本）行为测试
+```
+
+**发布前**额外跑（验证压缩产物没改变行为）：
+
+```bash
+npm run build          # 编译 CSS + 压缩 JS → dist/
+npm run dom:dist       # 同一批 dom 断言，但执行 dist/ 里的压缩产物
 ```
 
 - `smoke` / `dom` 走的是**正在运行的实例**，两种资源模式各跑一遍：
@@ -165,9 +172,9 @@ ETAPI_MOCK=1 PORT=4323 LIVE_RELOAD=0 node server.js    # 另开终端
 ## 目录结构
 
 ```
-share-tool/
+dev/
 ├─ server.js            # HTTP 服务：路由 / SSE 热重载 / 代理
-├─ config.js            # .env 解析 + 默认值 + 资源本地化规则
+├─ config.js            # .env 解析 + 默认值 + 资源本地化规则 + dist/ 产物路径
 ├─ src/
 │  ├─ etapi.js          # ETAPI 客户端（fetch，Authorization: token）
 │  ├─ store.js          # 子树预取 + 缓存 + 标签继承 + shareId 索引
@@ -177,8 +184,14 @@ share-tool/
 │  ├─ utils.js          # slugify / stripTags / slugifyHeadings
 │  └─ mock.js           # 内置假数据（ETAPI_MOCK=1）
 └─ tools/
+   ├─ build-dist.js     # 压缩打包 → dist/（terser，带产物守卫）
+   ├─ smoke.js          # 服务端渲染断言（真实库 / mock 两用）
+   ├─ dom-test.js       # jsdom 行为断言（--dist 可测压缩产物）
+   ├─ unit-test.js      # 纯逻辑单测
+   ├─ script-test.js    # templateScript.js 测试
    ├─ state.js          # 打印笔记树
-   └─ push-theme.js     # 回推主题到 Trilium
+   ├─ push-theme.js     # 回推主题到 Trilium
+   └─ gen-boxicons-glyphs.py  # 从 boxicons 官方 CSS 提取类名→码点表
 ```
 
 ### 为什么必须预取

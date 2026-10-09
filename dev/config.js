@@ -106,8 +106,24 @@ if (config.mock) {
 }
 
 
+/**
+ * 发布产物（dist/）—— 给 CDN 用的**压缩版**文件。
+ * 文件名与 EJS 里写死的 CDN 地址（`.../Timely-Theme/timely-theme.css|js`）保持一致，
+ * 产物落到 dist/ 时就顺手完成改名，上传时不用再手动 rename。
+ * 只在 `npm run build` / `npm run dist` 时生成，不被 dev 预览使用（预览走 theme/ 未压缩源，便于调试）。
+ */
+config.dist = {
+  dir: path.resolve(ROOT_DIR, '..', 'dist'),
+  css: 'timely-theme.css',
+  js: 'timely-theme.js',
+};
+
 export function themePath(file) {
   return path.join(config.themeDir, file);
+}
+
+export function distPath(file) {
+  return path.join(config.dist.dir, file);
 }
 
 export function assertEtapiConfig() {

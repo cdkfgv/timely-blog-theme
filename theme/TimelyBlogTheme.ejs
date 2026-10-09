@@ -269,8 +269,8 @@ var year = new Date().getFullYear();
 
   <!-- 主题资源 · 三阶段：
        ① 开发（当前）：用下面的 shareCss / shareJs 引用 Trilium 托管的 Code 笔记，
-          share-tool 渲染时把 api/notes/<id>/download 重写成
-          D:\TimelyBlogTheme\TimelyBlogTheme.css / .js，改完存盘即见
+          dev 预览服务渲染时把 api/notes/<id>/download 重写成
+          <仓库>/theme/TimelyBlogTheme.css / .js，改完存盘即见
        ② 预览：CSS/JS 已上传进 Trilium，此处不动任何东西，直接看 Trilium 是否正确渲染
        ③ 上线：把 CSS/JS 传 GitHub 拿到 CDN 地址 → 改为下面的 CDN 引用，
           并注释掉 shareCss / shareJs 两段循环（shareCss/shareJs 方式需要登录，不适合外网）
@@ -283,6 +283,7 @@ var year = new Date().getFullYear();
   <% } %>
 
   <!-- 阶段③ 上线：启用下面两行，并注释掉上面的 shareCss / shareJs 引用
+       两个文件由 `npm run build` 产出到 dist/（已压缩、已按 CDN 命名），原样上传即可，无需改名
   <link href="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.css" rel="stylesheet">
   -->
   <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/jetbrains-mono@1.0.6/css/jetbrains-mono.min.css">

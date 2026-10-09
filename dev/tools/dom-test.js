@@ -10,12 +10,28 @@
  */
 
 import fs from 'node:fs';
+import path from 'node:path';
 import { JSDOM } from 'jsdom';
 import { config, themePath } from '../config.js';
 
 const BASE = (process.env.BASE || `http://localhost:${config.port}`).replace(/\/+$/, '');
 const PREFIX = config.shareUrlPrefix;
-const THEME_JS = fs.readFileSync(themePath(config.jsFile), 'utf8');
+
+/* --dist：不测 theme/ 下的手写源，改测 dist/ 里的**压缩产物**。
+   同一批断言、同一份脚本，只换了文件 —— 目的是证明「压缩没有改变行为」。
+   产物不存在时给用法提示，别抛 ENOENT 让人猜。 */
+const USE_DIST = process.argv.includes('--dist');
+const JS_FILE = USE_DIST
+  ? path.join(config.dist.dir, config.dist.js)
+  : themePath(config.jsFile);
+if (!fs.existsSync(JS_FILE)) {
+  console.error(
+    `\n[dom] 找不到待测脚本：${JS_FILE}\n` +
+      (USE_DIST ? '      压缩产物需先构建：npm run build\n' : ''),
+  );
+  process.exit(2);
+}
+const THEME_JS = fs.readFileSync(JS_FILE, 'utf8');
 
 /* 本测试依赖 mock 的固定 fixture（post0000001 / 0000003 / 0000007 等）做行为断言，
    真实库里没有这些 noteId。连真实库时明确报错退出，避免抛出一堆看不懂的 null 异常。
@@ -91,6 +107,7 @@ const goHash = (w, hash) => { w.location.hash = hash; w.dispatchEvent(new w.Even
 /* ================================================================== */
 
 console.log(`\n[dom] base=${BASE}${PREFIX}/\n`);
+console.log(`      被测脚本：${USE_DIST ? 'dist/ 压缩产物' : 'theme/ 手写源'} → ${JS_FILE}\n`);
 console.log('A. 列表页 hash 路由');
 const home = mount(await fetchPage('/'), `${BASE}${PREFIX}/`);
 const hw = home.window;

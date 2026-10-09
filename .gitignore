@@ -1,6 +1,9 @@
 # 依赖（根目录统一安装，theme/ 与 dev/ 共用同一份）
 node_modules/
 
+# 发布产物 —— npm run build 生成，完全可从 theme/ 复现，不进版本库
+dist/
+
 # 环境变量 —— dev/.env 含 ETAPI token，绝不能提交
 .env
 .env.local
