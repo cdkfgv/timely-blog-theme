@@ -13,15 +13,14 @@
  * ==========================================================================
  */
 /* ⚠️ source(none) 关掉 Tailwind 的「自动全域扫描」。
-   默认行为会扫整个项目（除 .gitignore），把 PLAN.md / 布局调参速查.md / mockups 里
-   当示例写的 class（h-20、animate-pulse、max-w-[87.5rem]…）也当成真实使用，产出垃圾类。
+   默认行为会扫整个项目（除 .gitignore），把文档与示例文件里当示例写的 class
+   （h-20、animate-pulse、max-w-[87.5rem]…）也当成真实使用，产出垃圾类。
    关掉后只认下面显式声明的 @source —— 新增模板文件时必须在此补一条，否则其 class 不生成。 */
 @import "tailwindcss" source(none);
 
 /* 扫描范围：模板与脚本里出现的 class（唯一来源） */
 @source "../TimelyBlogTheme.ejs";
 @source "../TimelyBlogTheme.js";
-@source "../文章模版.html";
 
 /* --------------------------------------------------------------------------
  * 主题变量（覆写 Tailwind 默认值 / 新增自定义色）

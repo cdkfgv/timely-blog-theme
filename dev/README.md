@@ -120,8 +120,8 @@ npm run script-test    # templateScript.js（Trilium 属性变更脚本）行为
 **发布前**额外跑（验证压缩产物没改变行为）：
 
 ```bash
-npm run build          # 编译 CSS + 压缩 JS → dist/
-npm run dom:dist       # 同一批 dom 断言，但执行 dist/ 里的压缩产物
+npm run build          # 编译 CSS + 压缩 JS → 仓库根的 timely-blog-theme.min.css / .min.js
+npm run dom:min        # 同一批 dom 断言，但执行仓库根的压缩产物
 ```
 
 - `smoke` / `dom` 走的是**正在运行的实例**，两种资源模式各跑一遍：
@@ -174,19 +174,18 @@ ETAPI_MOCK=1 PORT=4323 LIVE_RELOAD=0 node server.js    # 另开终端
 ```
 dev/
 ├─ server.js            # HTTP 服务：路由 / SSE 热重载 / 代理
-├─ config.js            # .env 解析 + 默认值 + 资源本地化规则 + dist/ 产物路径
+├─ config.js            # .env 解析 + 默认值 + 资源本地化规则 + 压缩产物路径
 ├─ src/
 │  ├─ etapi.js          # ETAPI 客户端（fetch，Authorization: token）
 │  ├─ store.js          # 子树预取 + 缓存 + 标签继承 + shareId 索引
 │  ├─ share-note.js     # 模拟模板里的 note 对象（getLabelValue/… 同步 API）
 │  ├─ rewrite.js        # 正文链接改写（对齐 content_renderer.ts）
 │  ├─ render.js         # EJS 渲染 + 资源本地化 + 热重载注入
-│  ├─ utils.js          # slugify / stripTags / slugifyHeadings
 │  └─ mock.js           # 内置假数据（ETAPI_MOCK=1）
 └─ tools/
-   ├─ build-dist.js     # 压缩打包 → dist/（terser，带产物守卫）
+   ├─ build-min.js      # 压缩打包 → 仓库根（terser，带产物守卫）
    ├─ smoke.js          # 服务端渲染断言（真实库 / mock 两用）
-   ├─ dom-test.js       # jsdom 行为断言（--dist 可测压缩产物）
+   ├─ dom-test.js       # jsdom 行为断言（--min 可测压缩产物）
    ├─ unit-test.js      # 纯逻辑单测
    ├─ script-test.js    # templateScript.js 测试
    ├─ state.js          # 打印笔记树

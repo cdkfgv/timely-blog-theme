@@ -58,7 +58,7 @@ export const config = {
    */
   assetRewrite: [
     {
-      pattern: 'https?://cdn\\.jsdmirror\\.com/gh/[^/"\'`]+/timely-theme@[^/"\'`]+/Timely-Theme/([\\w.-]+)',
+      pattern: 'https?://cdn\\.jsdmirror\\.com/gh/[^/"\'`]+/timely-blog-theme@[^/"\'`]+/([\\w.-]+)',
       map: {},
     },
     {
@@ -93,8 +93,8 @@ export const config = {
 };
 
 config.assetRewrite[0].map = {
-  'timely-theme.css': config.cssFile,
-  'timely-theme.js': config.jsFile,
+  'timely-blog-theme.min.css': config.cssFile,
+  'timely-blog-theme.min.js': config.jsFile,
 };
 
 // Trilium 托管的主题资源 noteId → 本地文件名
@@ -107,23 +107,21 @@ if (config.mock) {
 
 
 /**
- * 发布产物（dist/）—— 给 CDN 用的**压缩版**文件。
- * 文件名与 EJS 里写死的 CDN 地址（`.../Timely-Theme/timely-theme.css|js`）保持一致，
- * 产物落到 dist/ 时就顺手完成改名，上传时不用再手动 rename。
- * 只在 `npm run build` / `npm run dist` 时生成，不被 dev 预览使用（预览走 theme/ 未压缩源，便于调试）。
+ * 发布产物 —— 给 CDN 用的**压缩版**文件，直接落在**仓库根目录**（与 EJS 里写死的 CDN 地址
+ * `.../gh/<user>/timely-blog-theme@main/timely-blog-theme.min.css|js` 一一对应）。
+ * 刻意放进版本库而不是 gitignore：CDN（jsDelivr / jsdmirror）只认仓库里的文件，
+ * 不提交就等于外网拿不到。
+ * 只在 `npm run build` / `npm run min` 时生成，不被 dev 预览使用
+ * （预览走 theme/ 未压缩源，便于调试）。
  */
-config.dist = {
-  dir: path.resolve(ROOT_DIR, '..', 'dist'),
-  css: 'timely-theme.css',
-  js: 'timely-theme.js',
+config.min = {
+  dir: path.resolve(ROOT_DIR, '..'),
+  css: 'timely-blog-theme.min.css',
+  js: 'timely-blog-theme.min.js',
 };
 
 export function themePath(file) {
   return path.join(config.themeDir, file);
-}
-
-export function distPath(file) {
-  return path.join(config.dist.dir, file);
 }
 
 export function assertEtapiConfig() {

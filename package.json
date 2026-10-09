@@ -8,16 +8,16 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "npm run build:css && npm run dist",
+    "build": "npm run build:css && npm run min",
     "build:css": "tailwindcss -i ./theme/src/input.css -o ./theme/TimelyBlogTheme.css --minify",
     "dev": "tailwindcss -i ./theme/src/input.css -o ./theme/TimelyBlogTheme.css --watch --minify",
-    "dist": "node dev/tools/build-dist.js",
+    "min": "node dev/tools/build-min.js",
     "start": "node dev/server.js",
     "serve": "node --watch dev/server.js",
     "state": "node dev/tools/state.js",
     "smoke": "node dev/tools/smoke.js",
     "dom": "node dev/tools/dom-test.js",
-    "dom:dist": "node dev/tools/dom-test.js --dist",
+    "dom:min": "node dev/tools/dom-test.js --min",
     "unit": "node dev/tools/unit-test.js",
     "script-test": "node dev/tools/script-test.js",
     "push": "node dev/tools/push-theme.js"

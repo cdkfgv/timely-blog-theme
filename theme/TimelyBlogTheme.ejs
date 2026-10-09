@@ -282,9 +282,10 @@ var year = new Date().getFullYear();
   <script type="module" src="api/notes/<%= jsRelation.value %>/download"></script>
   <% } %>
 
-  <!-- 阶段③ 上线：启用下面两行，并注释掉上面的 shareCss / shareJs 引用
-       两个文件由 `npm run build` 产出到 dist/（已压缩、已按 CDN 命名），原样上传即可，无需改名
-  <link href="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.css" rel="stylesheet">
+  <!-- 阶段③ 上线：启用下面这行，并注释掉上面的 shareCss / shareJs 引用
+       两个文件由 `npm run build` 产出到**仓库根**（已压缩、已按 CDN 命名，随仓库一起提交），
+       CDN 地址 = https://cdn.jsdmirror.com/gh/<user>/timely-blog-theme@main/timely-blog-theme.min.css
+  <link href="https://cdn.jsdmirror.com/gh/cdkfgv/timely-blog-theme@main/timely-blog-theme.min.css" rel="stylesheet">
   -->
   <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/jetbrains-mono@1.0.6/css/jetbrains-mono.min.css">
   <!-- 代码高亮：highlight.js 11（单文件全语言，自带 bash / yaml / docker / ts 等）
@@ -744,7 +745,7 @@ var year = new Date().getFullYear();
   </nav>
 
 <!-- 阶段③ 上线：启用下面这行，并注释掉 head 里的 shareJs 引用
-<script src="https://cdn.jsdmirror.com/gh/cdkfgv/timely-theme@main/Timely-Theme/timely-theme.js"></script>
+<script src="https://cdn.jsdmirror.com/gh/cdkfgv/timely-blog-theme@main/timely-blog-theme.min.js"></script>
 -->
 </body>
 </html>

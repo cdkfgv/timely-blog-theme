@@ -7,8 +7,6 @@ import { ShareNote } from './share-note.js';
  * 而 ETAPI 是 HTTP 异步接口。所以先把元数据一次性拉下来，再交给模板同步使用。
  */
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 async function mapLimit(items, limit, fn) {
   const out = [];
   let cursor = 0;

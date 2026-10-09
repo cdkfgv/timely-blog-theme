@@ -180,7 +180,7 @@ export async function renderSharePage({ store, note, url = '/' }) {
  * HTML 注释里的内容保持原样，方便对照发布形态。
  * `ASSET_MODE=as-is` 时（阶段② 预览 / ③ 上线）整段跳过，页面保持 EJS 原样。
  */
-export function localizeAssets(html, store) {
+function localizeAssets(html, store) {
   if (config.assetMode === 'as-is') return html;
 
   const rewrite = (chunk) => {
@@ -212,7 +212,7 @@ export function localizeAssets(html, store) {
 }
 
 /** 注入热重载脚本（主题文件变化 → 浏览器自动刷新） */
-export function injectLiveReload(html) {
+function injectLiveReload(html) {
   if (!config.liveReload) return html;
   const snippet =
     '<script data-share-tool="livereload">(function(){try{var es=new EventSource("' +

@@ -197,8 +197,8 @@ check('EJS 开发形态：引用 ~shareCss / ~shareJs',
   /getRelations\("shareCss"\)/.test(ejsSrc) && /getRelations\("shareJs"\)/.test(ejsSrc),
   'EJS 里未找到 shareCss / shareJs 循环');
 check('EJS 保留 CDN 上线形态（已注释）',
-  /<!--[\s\S]{0,400}?timely-theme\.css[\s\S]{0,400}?-->/.test(ejsSrc) &&
-  /<!--[\s\S]{0,400}?timely-theme\.js[\s\S]{0,400}?-->/.test(ejsSrc),
+  /<!--[\s\S]{0,400}?timely-blog-theme\.min\.css[\s\S]{0,400}?-->/.test(ejsSrc) &&
+  /<!--[\s\S]{0,400}?timely-blog-theme\.min\.js[\s\S]{0,400}?-->/.test(ejsSrc),
   'EJS 里未找到被注释的 CDN 引用');
 check('无自动回退逻辑（无 onerror / 动态注入）',
   !home.body.includes('onerror="this.onerror=null') && !/onerror="\(function\(\)/.test(home.body),
