@@ -194,13 +194,19 @@ for (const [file, typeHint] of [[config.cssFile, /^text\/css/], [config.jsFile, 
 
 /* ---- F. 资源加载策略 ---- */
 console.log(`\nF. 资源加载策略（ASSET_MODE=${config.assetMode}）`);
-check('EJS 开发形态：引用 ~shareCss / ~shareJs',
-  /getRelations\("shareCss"\)/.test(ejsSrc) && /getRelations\("shareJs"\)/.test(ejsSrc),
-  'EJS 里未找到 shareCss / shareJs 循环');
-check('EJS 保留 CDN 上线形态（已注释）',
-  /<!--[\s\S]{0,400}?timely-blog-theme\.min\.css[\s\S]{0,400}?-->/.test(ejsSrc) &&
-  /<!--[\s\S]{0,400}?timely-blog-theme\.min\.js[\s\S]{0,400}?-->/.test(ejsSrc),
-  'EJS 里未找到被注释的 CDN 引用');
+
+/* 主题 CSS/JS 统一走 CDN（阶段③ 上线形态）。EJS 里只有这一种形态：
+   线上直连 CDN；本地 dev 在 ASSET_MODE=local 时由 assetRewrite 把 CDN 地址
+   重写成 /share/theme/<本地文件>（见 dev/config.js）。不写死域名，跟着 EJS 走。 */
+const CDN_CSS_TAG = /<link[^>]+href="(https:\/\/cdn\.[^"]+\/timely-blog-theme@[^"]+\/timely-blog-theme\.min\.css)"/;
+const CDN_JS_TAG = /<script[^>]+src="(https:\/\/cdn\.[^"]+\/timely-blog-theme@[^"]+\/timely-blog-theme\.min\.js)"/;
+
+check('EJS 上线形态：启用 CDN 的 CSS + JS 引用',
+  CDN_CSS_TAG.test(ejsSrc) && CDN_JS_TAG.test(ejsSrc),
+  'EJS 里未找到启用的 CDN 引用（timely-blog-theme.min.css / .min.js）');
+check('EJS 已停用 Trilium 托管的 ~shareCss / ~shareJs',
+  !/getRelations\("shareCss"\)/.test(ejsSrc) && !/getRelations\("shareJs"\)/.test(ejsSrc),
+  '仍存在 shareCss / shareJs 循环 —— api/notes 方式需要登录，外网不可用');
 check('无自动回退逻辑（无 onerror / 动态注入）',
   !home.body.includes('onerror="this.onerror=null') && !/onerror="\(function\(\)/.test(home.body),
   '检测到回退属性');
@@ -212,7 +218,9 @@ function hostedAssetRefs(html) {
   return [...linkTags, ...scriptTags].filter((tag) => /api\/notes\/[\w-]+\/download/.test(tag));
 }
 const LOCAL_LINK = new RegExp(`<link[^>]+href="${PREFIX}/theme/${config.cssFile}"`);
-const LOCAL_SCRIPT = new RegExp(`<script type="module" src="${PREFIX}/theme/${config.jsFile}"></script>`);
+/* 不再要求 type="module"：CDN 的 script 标签本来就是传统脚本（见 EJS 尾部），
+   重写只换 URL 不动属性。 */
+const LOCAL_SCRIPT = new RegExp(`<script[^>]+src="${PREFIX}/theme/${config.jsFile}"`);
 
 /* 子页面用 POST_ID 那篇（真实库必须显式设 POST_ID=<真实文章 noteId>）；
    POST_ID 取不到时退回 mock 用例，避免真实库跑出一堆无意义的「子页面」断言失败。 */
@@ -221,28 +229,36 @@ const subOk = sub.status === 200;
 if (!subOk) console.log(`  ! 子页面断言跳过（${POST_ID} 与 post0000001 都取不到 200）`);
 
 if (config.assetMode === 'as-is') {
-  check('首页保留 Trilium 资源引用（未本地化）', hostedAssetRefs(home.body).length > 0);
-  check('子页面保留 Trilium 资源引用（关系已继承）', !subOk || hostedAssetRefs(sub.body).length > 0,
-    '子页面没有 api/notes 引用 → 关系没继承');
-  check('未注入本地主题资源', !LOCAL_LINK.test(home.body));
-  check('注释里的 CDN 保持原样', /<!--[\s\S]*?cdn\.jsdmirror\.com[\s\S]*?-->/.test(home.body));
-  const first = hostedAssetRefs(home.body)[0]?.match(/api\/notes\/([\w-]+)\/download/);
-  if (first) {
-    const res = await fetch(`${BASE}${PREFIX}/api/notes/${first[1]}/download`);
-    const ct = res.headers.get('content-type') || '';
-    check(`主题资源可访问（${first[1]} → ${res.status} ${ct}）`, res.status === 200 && /css|javascript/i.test(ct));
+  check('首页保留 CDN 引用（未本地化）', CDN_CSS_TAG.test(home.body) && CDN_JS_TAG.test(home.body));
+  check('子页面同样有 CDN 引用（不依赖关系继承）',
+    !subOk || (CDN_CSS_TAG.test(sub.body) && CDN_JS_TAG.test(sub.body)),
+    '子页面没有 CDN 引用');
+  check('未注入本地主题资源', !LOCAL_LINK.test(home.body) && !LOCAL_SCRIPT.test(home.body));
+  check('无残留 Trilium 托管资源引用', hostedAssetRefs(home.body).length === 0,
+    `仍有 ${hostedAssetRefs(home.body).length} 处 api/notes 引用`);
+
+  /* 实测 CDN 真能取到 —— 这是「切 CDN」的唯一硬前提，页面上写对地址不等于外网可达 */
+  const cssUrl = home.body.match(CDN_CSS_TAG)?.[1];
+  if (cssUrl) {
+    const res = await fetch(cssUrl).catch(() => null);
+    const ct = res?.headers.get('content-type') || '';
+    check(`CDN 可访问（${res?.status ?? 'ERR'} ${ct}）`,
+      !!res && res.status === 200 && /css/i.test(ct),
+      `取不到 ${cssUrl}`);
   }
 } else {
   const homeAssets = hostedAssetRefs(home.body);
-  check('首页主题资源已本地化（无 api/notes 引用）', homeAssets.length === 0, `仍有 ${homeAssets.length} 处`);
+  check('首页已本地化（无 api/notes 引用）', homeAssets.length === 0, `仍有 ${homeAssets.length} 处`);
   check(`首页注入本地 CSS（${PREFIX}/theme/${config.cssFile}）`, LOCAL_LINK.test(home.body));
-  check(`首页注入本地 JS（${PREFIX}/theme/${config.jsFile}，保持 module）`, LOCAL_SCRIPT.test(home.body));
-  check('注释里的 CDN 保持原样', /<!--[\s\S]*?cdn\.jsdmirror\.com[\s\S]*?-->/.test(home.body), '注释被误改写');
+  check(`首页注入本地 JS（${PREFIX}/theme/${config.jsFile}）`, LOCAL_SCRIPT.test(home.body));
+  check('CDN 引用已被本地化替换（首页无残留）',
+    !CDN_CSS_TAG.test(home.body) && !CDN_JS_TAG.test(home.body));
 
   const subAssets = hostedAssetRefs(sub.body);
   check('子页面主题资源已本地化', !subOk || subAssets.length === 0, `仍有 ${subAssets.length} 处`);
-  check('子页面继承到主题资源（关系需勾「可继承」）', !subOk || LOCAL_LINK.test(sub.body),
-    '子页面没有主题 CSS —— 关系没继承');
+  check('子页面同样注入本地主题资源（不依赖关系继承）',
+    !subOk || (LOCAL_LINK.test(sub.body) && LOCAL_SCRIPT.test(sub.body)),
+    '子页面没有本地主题 CSS/JS');
 }
 
 /* ---- G. 拼写与依赖回归 ---- */

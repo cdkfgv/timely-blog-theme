@@ -15,8 +15,9 @@
      #siteName / #siteDescription / #siteUrl / #siteIcp
      #bloggerName / #bloggerMotto / #bloggerBio / #bloggerAvatarUrl
      #bloggerEmail / #bloggerGithub
-     ~shareCss / ~shareJs  （勾「可继承」）主题 CSS / JS Code 笔记
      ~shareFavicon         （勾「可继承」）→ File 笔记
+   ⚠️ ~shareCss / ~shareJs **已停用**：api/notes 方式需要登录、外网取不到。
+      主题 CSS/JS 已改走 CDN（见下方「主题资源 · 统一走 CDN」注释）。
    以上各笔记（模板 / CSS / JS / favicon）建议都加 #shareHiddenFromTree，避免出现在导航树。
    文章笔记：#publish=true / #blogDate / #blogSummary / #blogCategory / #blogTags / #headerImage
    ---------------------------------------------------------------------- */
@@ -267,26 +268,19 @@ var year = new Date().getFullYear();
   <link rel="preconnect" href="https://www.unpkg.com" crossorigin>
   <link rel="stylesheet" href="https://www.unpkg.com/font-online@1.3.2/css/alibaba-pu-hui-ti-3.online.css">
 
-  <!-- 主题资源 · 三阶段：
-       ① 开发（当前）：用下面的 shareCss / shareJs 引用 Trilium 托管的 Code 笔记，
-          dev 预览服务渲染时把 api/notes/<id>/download 重写成
-          <仓库>/theme/TimelyBlogTheme.css / .js，改完存盘即见
-       ② 预览：CSS/JS 已上传进 Trilium，此处不动任何东西，直接看 Trilium 是否正确渲染
-       ③ 上线：把 CSS/JS 传 GitHub 拿到 CDN 地址 → 改为下面的 CDN 引用，
-          并注释掉 shareCss / shareJs 两段循环（shareCss/shareJs 方式需要登录，不适合外网）
-       注意：~shareCss / ~shareJs 关系必须勾选「可继承」，否则子页面取不到 -->
-  <% for (const cssRelation of note.getRelations("shareCss")) { %>
-  <link href="api/notes/<%= cssRelation.value %>/download" rel="stylesheet">
-  <% } %>
-  <% for (const jsRelation of note.getRelations("shareJs")) { %>
-  <script type="module" src="api/notes/<%= jsRelation.value %>/download"></script>
-  <% } %>
+  <!-- 主题资源 · 统一走 CDN（阶段③ 上线形态；不再靠注释切三阶段）
+       CSS/JS 由 `npm run build` 产出到**仓库根**（已压缩、已按 CDN 命名，随仓库一起提交），
+       jsDelivr 直接服务 cdkfgv/timely-blog-theme@main 下的这两个文件。
 
-  <!-- 阶段③ 上线：启用下面这行，并注释掉上面的 shareCss / shareJs 引用
-       两个文件由 `npm run build` 产出到**仓库根**（已压缩、已按 CDN 命名，随仓库一起提交），
-       CDN 地址 = https://cdn.jsdmirror.com/gh/<user>/timely-blog-theme@main/timely-blog-theme.min.css
+       同一份 EJS，两种看法：
+         · 线上 / ASSET_MODE=as-is → 直连下面的 CDN 地址（匿名可访问，不需要登录）
+         · 本地 dev（默认 ASSET_MODE=local）→ dev 服务把 CDN 地址重写成
+           /share/theme/TimelyBlogTheme.css|js（见 dev/config.js 的 assetRewrite），存盘即见
+
+       ⚠️ 旧的 ~shareCss / ~shareJs（Trilium 托管 Code 笔记 → api/notes/<id>/download）
+          需要登录、不适合外网分享，已停用。那两个关系仍留在 Trilium 上（留着无害），
+          要回退可从 git 历史取回对应循环。 -->
   <link href="https://cdn.jsdmirror.com/gh/cdkfgv/timely-blog-theme@main/timely-blog-theme.min.css" rel="stylesheet">
-  -->
   <link rel="stylesheet" href="https://cdn.jsdmirror.com/npm/jetbrains-mono@1.0.6/css/jetbrains-mono.min.css">
   <!-- 代码高亮：highlight.js 11（单文件全语言，自带 bash / yaml / docker / ts 等）
        明暗双主题各挂一份，由 #hljs-light / #hljs-dark 的 disabled 切换（见 TimelyBlogTheme.js 的 syncHljs）
@@ -744,8 +738,8 @@ var year = new Date().getFullYear();
     <a href="./about" data-nav="about" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-user text-sm"></i><span>关于</span></a>
   </nav>
 
-<!-- 阶段③ 上线：启用下面这行，并注释掉 head 里的 shareJs 引用
+<!-- 主题脚本 · CDN（放在 </body> 前，DOM 已就绪；不用 type="module"，
+     本地 dev 预览时这一行会被重写成 /share/theme/TimelyBlogTheme.js） -->
 <script src="https://cdn.jsdmirror.com/gh/cdkfgv/timely-blog-theme@main/timely-blog-theme.min.js"></script>
--->
 </body>
 </html>
