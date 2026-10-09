@@ -787,7 +787,7 @@ CSS 不二次处理是刻意的：保持与 `theme/TimelyBlogTheme.css` **逐字
 esbuild 的 JS API 运行时同样要 fork 平台二进制 → 就算装上也无法运行，更无法验证。
 
 → 换 **terser**：纯 JS、**进程内**运行、不 spawn；`ecma: 5` 与源码的 ES5 约束一致；
-压缩率还更好（`20.4 KB → 10.4 KB`，**-49.1%**，gzip 3.9 KB）。
+压缩率还更好（≈19.8 KB → 10.4 KB，**约 -48%**，gzip 3.9 KB）。
 
 ### 11.4 产物守卫（`dev/tools/build-dist.js`，任一不过非零退出）
 
@@ -833,3 +833,18 @@ npm run dom:dist   # 发布前：用压缩产物再跑一遍 dom 断言
 
 ⚠️ `dist/` 已进 `.gitignore`（完全可由 `theme/` 复现）；**只有 `npm run build` 会刷新它**，
 `npm run dev` 不刷新 —— 上线前别忘 build。
+
+### 11.9 顺带修掉：仓库行尾长期不一致（P1）
+
+提交前发现改一个文件会被算成「整个文件都改了」——
+`dev/tools/dom-test.js` 的 `git diff --stat` 是 **618 行**，而 `--ignore-cr-at-eol` 只有 **18 行**。
+
+根因：Windows 工作区大面积 **CRLF**，而索引里的 blob 多是 **LF**。
+平时被 git 的 stat 缓存掩盖（mtime/size 没变就不比内容），
+**一旦某个文件被编辑、缓存失效，整文件都会算成改动**。
+
+修法：新增 `.gitattributes`（`* text=auto eol=lf`，二进制类型显式声明），
+再把已跟踪文本文件统一为 LF。实测真正入库内容变化的只有 `dev/.env.example`、
+`dev/tools/smoke.js` 两个（它们的 blob 原本是 CRLF），其余文件归一后与 blob 一致、不产生 diff。
+
+⚠️ **以后见到「整文件 diff」先怀疑行尾**：`git diff --ignore-cr-at-eol --stat` 一眼看出真实改动量。

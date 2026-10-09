@@ -80,7 +80,7 @@ npm run build      # ① 编译 CSS + 压缩 JS，产出 dist/
 | 文件 | 工具 | 说明 |
 |---|---|---|
 | `dist/timely-theme.css` | Tailwind 自带（lightningcss） | 由 `build:css` 的 `--minify` 完成，`dist` 阶段**原样拷贝**，保证与 `theme/TimelyBlogTheme.css` 逐字节一致 |
-| `dist/timely-theme.js` | **terser**（`ecma: 5` + `mangle` + 3 轮 compress） | 源码保持 ES5，产物同样 ES5 兼容；省约 49% |
+| `dist/timely-theme.js` | **terser**（`ecma: 5` + `mangle` + 3 轮 compress） | 手写源保持 ES5，产物同样 ES5 兼容；约 19.8 KB → 10.4 KB（**省约 48%**） |
 
 `dev/tools/build-dist.js` 自带守卫，任一不过就非零退出（**别把坏产物传上 CDN**）：
 CSS 必须是压缩产物、JS 压缩后语法必须可解析 / 体积必须变小 / EJS 与 CSS 依赖的 9 个选择器字面量必须全部存活。
