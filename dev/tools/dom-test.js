@@ -191,7 +191,7 @@ searchInput.value = 'NAS';
 searchInput.dispatchEvent(new hw.Event('input', { bubbles: true }));
 const rows = searchResults.querySelectorAll('a');
 check('命中 1 条', rows.length === 1, `实际 ${rows.length} 条`);
-check('命中链接指向正确文章', rows[0] && rows[0].getAttribute('href') === './post0000003', rows[0] && rows[0].getAttribute('href'));
+check('命中链接指向正确文章', rows[0] && rows[0].getAttribute('href') === `${PREFIX}/post0000003`, rows[0] && rows[0].getAttribute('href'));
 
 searchInput.value = 'Vue';
 searchInput.dispatchEvent(new hw.Event('input', { bubbles: true }));
@@ -311,6 +311,37 @@ check('hljs 缺失时仍保留复制按钮',
 } else {
   console.log('  ! 跳过代码高亮专项（依赖 mock fixture post0000007）');
 }
+
+/* ================================================================== */
+/* G. 反向代理：分享页被映射到域名根时的站内链接                      */
+/*    场景 www.yihwang.top/ → note.yihwang.top/share/                 */
+/*    浏览器地址栏是 `/`，站内链接若写成相对链接 ./xxx 会解析成 /xxx   */
+/*    → 点文章 404。这里把文档 URL 设成域名根来复现该场景。           */
+/* ================================================================== */
+
+console.log('\nG. 反向代理（站点映射到域名根）');
+const atRoot = mount(await fetchPage('/'), `${BASE}/`);
+const rootLinks = [...atRoot.window.document.querySelectorAll('a[href]')]
+  .map((a) => a.getAttribute('href'))
+  /* /rss.xml 是有意保留的绝对路径链接（Trilium 不提供 RSS，不在本段范围内） */
+  .filter((h) => h.startsWith('/') && h !== '/rss.xml');
+
+check('域根访问时站内链接仍带分享前缀（不依赖文档所在目录）',
+  rootLinks.length > 0 && rootLinks.every((h) => h.startsWith(`${PREFIX}/`)),
+  `异常链接：${rootLinks.filter((h) => !h.startsWith(`${PREFIX}/`)).join(', ') || '(无)'}`);
+check('域根访问时文章链接指向 /share/<shareId>',
+  rootLinks.some((h) => new RegExp(`^${PREFIX}/[\\w-]+$`).test(h)),
+  rootLinks.slice(0, 6).join(', '));
+
+/* JS 动态生成的链接（搜索结果）同样不能靠文档目录 */
+fire(atRoot.window, atRoot.window.document.querySelector('[data-search-open]'), 'click');
+const rootSearchInput = atRoot.window.document.getElementById('search-input');
+rootSearchInput.value = 'NAS';
+rootSearchInput.dispatchEvent(new atRoot.window.Event('input', { bubbles: true }));
+const rootHit = atRoot.window.document.querySelector('#search-results a');
+check('域根访问时搜索结果链接也带分享前缀',
+  !!rootHit && String(rootHit.getAttribute('href')).startsWith(`${PREFIX}/`),
+  rootHit ? rootHit.getAttribute('href') : '无搜索结果');
 
 /* ------------------------------------------------------------------ */
 

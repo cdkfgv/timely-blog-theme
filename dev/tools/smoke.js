@@ -18,6 +18,7 @@
  *   K. 笔记图标（#iconClass → 首页卡片 / 详情页标题）
  *   L. 侧边栏完全固定（position: fixed / left 公式跨文件对齐）
  *   M. 暗色模式是 class 策略（产物里不得有 prefers-color-scheme 的 dark 媒体查询）
+ *   N. 站内链接基址（linkBase=/share/，反向代理映射到域名根时也必须可用）
  */
 
 import fs from 'node:fs';
@@ -491,7 +492,7 @@ check('卡片图标类名属于已加载的图标包（bx* / fa*）',
 
 /* 图标必须出现在标题链接之前（A 方案：内联在标题左侧） */
 check('图标内联在标题左侧（<i> 紧邻 <a> 之前）',
-  /<i class="[^"]+ post-icon"[^>]*><\/i><a href="\.\//.test(home.body),
+  new RegExp(`<i class="[^"]+ post-icon"[^>]*></i><a href="${PREFIX}/`).test(home.body),
   'A 方案要求图标与标题同行且在前');
 
 /* K3 · 详情页标题图标（用 mock 里确实设了 iconClass 的文章） */
@@ -844,6 +845,73 @@ check('EJS 头部有明暗初始化脚本（读 localStorage，防首屏闪白�
 check('EJS 的 <html> 默认带 dark 类（内联脚本只负责"去掉"）',
   /<html[^>]*class="[^"]*\bdark\b/.test(themeEjsSrc),
   'html 默认不带 dark —— 内联脚本只做移除、不做添加，默认值改成浅色会让脚本逻辑反过来');
+
+/* ------------------------------------------------------------------
+   N 段 · 站内链接基址（linkBase = /share/）
+
+   分享页里所有站内地址都必须拼成**绝对路径** /share/xxx：
+     Trilium 的分享根是 /share/，但反向代理可以把整站映射到域名根
+     （www.yihwang.top/ → note.yihwang.top/share/）。此时浏览器地址栏是 `/`，
+     相对链接 ./xxx 会解析成 /xxx（少了 /share）→ 点文章 404。
+   同一份基址两处使用，必须同源：
+     · EJS 的 var linkBase        → 静态链接 / favicon 等托管资源
+     · <body data-share-base>     → 主题 JS（搜索结果链接）
+   本段锁死「没有相对链接」+「基址存在且一致」+「渲染结果里全是绝对路径」。
+
+   ⚠️ 不要改用 `<base href>`：它会改 document.baseURI，导致 TOC 滚动高亮的
+      `history.replaceState(null,'','#'+id)` 解析成 `/share/#id`（地址栏被改到
+      首页），正文里裸 `#fragment`（脚注等）也会全部跳错。
+   ------------------------------------------------------------------ */
+
+/* 源码级断言前先剥掉注释：EJS 的 <!-- --> 与 <% %> 里都可能出现「反例字面量」
+   （本段的说明注释里就写了 href="./…" / <base href> 这两个反面写法） */
+const ejsNoComments = ejsSrc.replace(/<!--[\s\S]*?-->/g, '').replace(/<%[\s\S]*?%>/g, '');
+
+check('EJS 声明了站内链接基址 linkBase = /share/',
+  /var\s+linkBase\s*=\s*'\/share\/'/.test(ejsSrc),
+  'EJS 里找不到 `var linkBase = \'/share/\'` —— 站内链接失去统一基址');
+
+check('EJS 里不再有相对链接（href="./…"）',
+  !/href="\.\//.test(ejsNoComments),
+  'EJS 里仍有 href="./…" 形式的相对链接 —— 反向代理把站点映射到域名根时会解析到错误目录');
+
+check('EJS 没有引入 <base href>（它会污染 replaceState / 裸 #锚点）',
+  !/<base\b/i.test(ejsNoComments),
+  '<base> 会改 document.baseURI：TOC 高亮的 history.replaceState(null,\'\',\'#id\') '
+  + '会变成 /share/#id（地址栏跳到首页），正文里 #fragment 也会跳错。改用 linkBase 绝对路径');
+
+check('EJS 给 <body> 下发了 data-share-base',
+  /data-share-base="<%- esc\(linkBase\) %>"/.test(ejsSrc),
+  '<body> 缺 data-share-base —— 主题 JS 拼搜索链接时会回落硬编码值，两处容易漂移');
+
+check('主题 JS 从 data-share-base 取基址，且不再用 "./" 拼站内链接',
+  /getAttribute\('data-share-base'\)/.test(jsSrc) && !/['"]\.\/['"]\s*\+/.test(jsSrc),
+  '主题 JS 里仍有 \'./\' + id 之类的相对拼接 —— 搜索结果链接在代理域名根下会 404');
+
+/* 渲染结果：首页 + 文章页都必须给 <body> 带上同一基址 */
+check('首页 <body> 带 data-share-base="/share/"',
+  home.body.includes('data-share-base="/share/"'),
+  '首页缺 data-share-base');
+check('子页面 <body> 也带 data-share-base="/share/"（不依赖属性继承）',
+  post.body.includes('data-share-base="/share/"'),
+  '文章页缺 data-share-base');
+
+/* 所有绝对路径链接都必须落在分享前缀下（/rss.xml 是有意保留的例外） */
+function absoluteHrefs(html) {
+  return [...html.matchAll(/href="([^"]*)"/g)]
+    .map((m) => m[1])
+    .filter((h) => h.startsWith('/') && h !== '/rss.xml');
+}
+const homeAbs = absoluteHrefs(home.body);
+check('首页站内链接全部是绝对路径 /share/…',
+  homeAbs.length > 0 && homeAbs.every((h) => h.startsWith(`${PREFIX}/`)),
+  `异常链接：${homeAbs.filter((h) => !h.startsWith(`${PREFIX}/`)).join(', ') || '(无)'}`);
+check('首页文章卡片指向 /share/<shareId>',
+  homeAbs.some((h) => new RegExp(`^${PREFIX}/[\\w-]+$`).test(h)),
+  '首页没有 /share/<shareId> 形式的文章链接');
+check('子页面站内链接全部是绝对路径 /share/…',
+  absoluteHrefs(post.body).every((h) => h.startsWith(`${PREFIX}/`)),
+  `异常链接：${absoluteHrefs(post.body).filter((h) => !h.startsWith(`${PREFIX}/`)).join(', ') || '(无)'}`);
 
 /* ------------------------------------------------------------------ */
 

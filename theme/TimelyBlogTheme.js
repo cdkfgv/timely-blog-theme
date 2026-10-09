@@ -16,6 +16,13 @@
 
   var SITE_NAME = D.body.getAttribute('data-site-name') || '';
 
+  /* 站内链接基址：由 EJS 的 <body data-share-base> 下发，与模板里的 linkBase 同一值。
+     ⚠️ 拼站内地址必须用**绝对路径**（/share/xxx），不能用相对链接 './xxx'：
+        反向代理把分享页映射到域名根时（www.yihwang.top/ → /share/），
+        浏览器地址栏是 `/`，'./xxx' 会解析成 `/xxx`（少了 /share）→ 404。
+     缺属性时回落 /share/（Trilium 分享页的固定前缀）。 */
+  var SHARE_BASE = D.body.getAttribute('data-share-base') || '/share/';
+
   /* ==================== 明 / 暗主题 ==================== */
   function isDark() { return docEl.classList.contains('dark'); }
 
@@ -430,7 +437,7 @@
 
       results.forEach(function (p, i) {
         var a = D.createElement('a');
-        a.href = './' + p.id;
+        a.href = SHARE_BASE + p.id;
         a.className = 'block px-4 py-3 transition-colors hover:bg-stone-100 dark:hover:bg-zinc-800';
         if (i === selected) a.setAttribute('aria-selected', 'true');
 
@@ -481,7 +488,7 @@
         var p = results[selected];
         if (p) {
           e.preventDefault();
-          window.location.href = './' + p.id;
+          window.location.href = SHARE_BASE + p.id;
           closeSearch();
         }
       }

@@ -101,7 +101,7 @@ CSS 必须是压缩产物、JS 压缩后语法必须可解析 / 体积必须变�
 
 ---
 
-## 三条关键约定
+## 四条关键约定
 
 1. **`theme/TimelyBlogTheme.css` 与两个 `*.min.*` 都是构建产物，不要直接编辑。**  
    改样式请改 `theme/src/input.css`，或改 `theme/TimelyBlogTheme.ejs` 里的 class，然后 `npm run build`  
@@ -116,6 +116,14 @@ CSS 必须是压缩产物、JS 压缩后语法必须可解析 / 体积必须变�
    删掉这行后构建照样成功、页面也不报错，但页面样式会劈成两半 —— 一半听按钮、一半听系统：  
    系统深色时切到浅色主题，背景变白而 `dark:text-zinc-400` 之类仍在生效 → **浅灰字压白底，看不清**。  
    `npm run smoke` 的 M 段有 3 条断言把这条锁死。
+4. **站内链接一律用绝对路径 `/share/…`，不要写相对链接 `./xxx`。**  
+   基址只有一处：EJS 顶部的 `var linkBase = '/share/'`（并下发到 `<body data-share-base>` 给主题 JS 用）。  
+   原因：分享根固定在 `/share/`，但反向代理可以把整站映射到域名根
+   （`www.yihwang.top/` → `note.yihwang.top/share/`）。那时浏览器地址栏是 `/`，  
+   相对链接 `./xxx` 会解析成 `/xxx`（少了 `/share`）→ **点文章 404**。  
+   ⚠️ 别改用 HTML 的 `<base href>`：它会改 `document.baseURI`，让 TOC 滚动高亮的
+   `history.replaceState(null,'','#'+id)` 解析成 `/share/#id`（地址栏跳到首页），
+   正文里裸 `#fragment`（脚注等）也会全部跳错。`npm run smoke` 的 N 段把这条锁死。
 
 布局相关数值（容器总宽 / 侧栏宽 / 侧栏顶边）已提成 `theme/src/input.css` 的 `:root` 变量，  
 改一处即全联动；对照表与手动调参步骤见 [theme/布局调参速查.md](theme/布局调参速查.md)。

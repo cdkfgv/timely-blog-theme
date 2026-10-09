@@ -36,6 +36,25 @@ function enc(s) { return encodeURIComponent(String(s === null || s === undefined
 /* 日期归一：ISO（含 T 或空格分隔）只取日期部分 */
 function dayOf(v) { return v ? String(v).replace(' ', 'T').split('T')[0] : ''; }
 
+/* ----------------------------------------------------------------------
+   站内链接基址（布局/路由相关，改动前先读这段）
+   分享页里**所有**站内地址都基于它拼接：
+     首页/列表页 → /share/          文章页 → /share/<shareId>     固定页 → /share/<alias>
+
+   ⚠️ 为什么必须是「绝对路径」而不是相对链接 `./xxx`：
+     Trilium 的分享根路径是 /share/，但**反向代理**可以把它映射到别的域名根上
+     （例如 www.yihwang.top/ → note.yihwang.top/share/）。此时浏览器地址栏是 `/`，
+     相对链接 ./xxx 会解析成 `/xxx`（少了 /share）→ 点文章 404。
+     改成绝对路径 /share/xxx 后，无论从哪个域名、哪个目录进来都能命中，
+     因为 /share/ 在两个域名下都真实存在（www 侧是直通路径）。
+
+   ⚠️ 不要用 `<base href>` 来实现同一目的：
+     它会改 document.baseURI，进而让 (a) TOC 滚动高亮的
+     `history.replaceState(null,'','#'+id)` 解析成 `/share/#id`（地址栏被改到首页），
+     (b) 正文里裸 `#fragment`（脚注等）全部跳错。
+   ---------------------------------------------------------------------- */
+var linkBase = '/share/';
+
 /* ---- 站点 / 博主：取分享根笔记上的标签 ---- */
 var site = {
   name: rootNote.getLabelValue('siteName') || 'Timely',
@@ -212,7 +231,8 @@ function relationNoteId(name) {
 }
 function hostedAssetUrl(name) {
   var id = relationNoteId(name);
-  return id ? 'api/notes/' + id + '/download' : '';
+  /* 同 linkBase：Trilium 托管的资源也要用绝对路径，否则在反向代理域名根下会 404 */
+  return id ? linkBase + 'api/notes/' + id + '/download' : '';
 }
 
 var siteUrl = String(rootNote.getLabelValue('siteUrl') || '').replace(/\/+$/, '');
@@ -312,7 +332,7 @@ var year = new Date().getFullYear();
 </head>
 
 <body class="min-h-screen bg-stone-50 dark:bg-zinc-950 dark:text-zinc-100 font-sans antialiased"
-      data-view="home" data-site-name="<%- esc(site.name) %>">
+      data-view="home" data-site-name="<%- esc(site.name) %>" data-share-base="<%- esc(linkBase) %>">
   <div class="fixed inset-0 -z-10 overflow-hidden">
     <div class="absolute inset-0 bg-gradient-to-br from-amber-50/60 via-stone-100/40 to-orange-50/40"></div>
     <div class="absolute top-0 left-1/4 w-96 h-96 bg-amber-200/30 rounded-full blur-3xl"></div>
@@ -332,20 +352,20 @@ var year = new Date().getFullYear();
     <!-- ==================== 顶部导航 ==================== -->
     <header class="sticky top-0 z-50 h-14 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border-b border-[#f5f5f4] dark:border-zinc-700/50 shadow-sm dark:shadow-zinc-950/20">
       <div class="max-w-[98rem] mx-auto px-5 sm:px-8 xl:px-10 h-full flex items-center justify-between">
-        <a href="./" class="flex items-center gap-2 text-base font-bold text-stone-800 dark:text-zinc-100 hover:text-amber-600 dark:hover:text-accent transition-colors">
+        <a href="<%- esc(linkBase) %>" class="flex items-center gap-2 text-base font-bold text-stone-800 dark:text-zinc-100 hover:text-amber-600 dark:hover:text-accent transition-colors">
           <i class="fa-solid fa-terminal text-amber-600 dark:text-accent"></i>
           <span><%- esc(site.name) %></span>
         </a>
         <div class="flex items-center gap-1">
           <nav class="site-nav hidden md:flex items-center gap-0.5 mr-2">
-            <a href="./" data-nav="home" class="px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">首页</a>
+            <a href="<%- esc(linkBase) %>" data-nav="home" class="px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">首页</a>
             <div class="relative" data-dropdown>
               <button type="button" data-nav="category" data-dropdown-toggle aria-expanded="false" class="flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">
                 <span>分类</span><i class="fa-solid fa-chevron-down text-[10px]"></i>
               </button>
               <div data-dropdown-menu hidden class="absolute top-full left-0 mt-1 min-w-48 bg-white dark:bg-zinc-900 border border-[#f5f5f4] dark:border-zinc-700 rounded-xl shadow-lg py-2 z-50 max-h-80 overflow-y-auto">
                 <% if (catList.length) { catList.forEach(function (c) { %>
-                <a href="./#/category/<%- enc(c.name) %>" class="flex items-center justify-between px-3 py-2 mx-1 rounded-lg text-sm text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 hover:text-amber-600 dark:hover:text-accent group transition-colors">
+                <a href="<%- esc(linkBase) %>#/category/<%- enc(c.name) %>" class="flex items-center justify-between px-3 py-2 mx-1 rounded-lg text-sm text-stone-600 dark:text-zinc-300 hover:bg-stone-100 dark:hover:bg-zinc-800 hover:text-amber-600 dark:hover:text-accent group transition-colors">
                   <span class="truncate flex-1 mr-2"><%- esc(c.name) %></span>
                   <span class="text-xs font-medium px-1.5 py-0.5 rounded-full bg-stone-100 dark:bg-zinc-800 text-stone-400 dark:text-zinc-400 group-hover:bg-amber-100 group-hover:text-amber-600 dark:group-hover:bg-accent/10 dark:group-hover:text-accent transition-colors shrink-0"><%= c.count %></span>
                 </a>
@@ -354,9 +374,9 @@ var year = new Date().getFullYear();
                 <% } %>
               </div>
             </div>
-            <a href="./#/tags" data-nav="tags" class="px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">标签</a>
-            <a href="./#/archive" data-nav="archive" class="px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">归档</a>
-            <a href="./about" data-nav="about" class="px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">关于</a>
+            <a href="<%- esc(linkBase) %>#/tags" data-nav="tags" class="px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">标签</a>
+            <a href="<%- esc(linkBase) %>#/archive" data-nav="archive" class="px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">归档</a>
+            <a href="<%- esc(linkBase) %>about" data-nav="about" class="px-3 py-1.5 text-sm font-medium rounded-md transition-all text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800">关于</a>
           </nav>
           <button type="button" data-search-open class="p-2 text-stone-500 dark:text-zinc-400 hover:text-stone-800 dark:hover:text-zinc-100 hover:bg-stone-100 dark:hover:bg-zinc-800 rounded-md transition-all">
             <i class="fa-solid fa-magnifying-glass"></i>
@@ -398,13 +418,13 @@ var year = new Date().getFullYear();
                 <div class="flex flex-wrap items-center gap-4 text-sm text-stone-400 dark:text-zinc-500">
                   <span><i class="fa-regular fa-calendar mr-1"></i><%- esc(postDate) %></span>
                   <% if (postCategory) { %>
-                  <a href="./#/category/<%- enc(postCategory) %>" class="px-2 py-1 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs font-medium"><%- esc(postCategory) %></a>
+                  <a href="<%- esc(linkBase) %>#/category/<%- enc(postCategory) %>" class="px-2 py-1 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs font-medium"><%- esc(postCategory) %></a>
                   <% } %>
                   <% if (postTags.length) { %>
                   <div class="flex items-center gap-2">
                     <i class="fa-solid fa-tags text-xs"></i>
                     <% postTags.forEach(function (t) { %>
-                    <a href="./#/tag/<%- enc(t) %>" class="text-xs text-stone-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent"><%- esc(t) %></a>
+                    <a href="<%- esc(linkBase) %>#/tag/<%- enc(t) %>" class="text-xs text-stone-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent"><%- esc(t) %></a>
                     <% }); %>
                   </div>
                   <% } %>
@@ -434,7 +454,7 @@ var year = new Date().getFullYear();
               <% if (!isFixed) { %>
               <nav class="grid grid-cols-2 gap-4 mt-10 pt-6 border-t border-[#f5f5f4] dark:border-zinc-800">
                 <% if (prevPost) { %>
-                <a href="./<%- esc(prevPost.id) %>" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl">
+                <a href="<%- esc(linkBase) %><%- esc(prevPost.id) %>" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl">
                   <div class="text-xs text-stone-400 dark:text-zinc-500 mb-2"><i class="fa-solid fa-arrow-left"></i> 上一篇</div>
                   <div class="text-sm font-medium text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100 line-clamp-2"><%- esc(prevPost.title) %></div>
                 </a>
@@ -442,7 +462,7 @@ var year = new Date().getFullYear();
                 <div class="p-4 rounded-xl border border-dashed border-[#f5f5f4] dark:border-zinc-800 flex items-center justify-center text-sm text-stone-400 dark:text-zinc-600">已是最新一篇</div>
                 <% } %>
                 <% if (nextPost) { %>
-                <a href="./<%- esc(nextPost.id) %>" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl text-right">
+                <a href="<%- esc(linkBase) %><%- esc(nextPost.id) %>" class="group block p-4 bg-white dark:bg-zinc-900/40 border border-[#f5f5f4] dark:border-zinc-800 rounded-xl text-right">
                   <div class="text-xs text-stone-400 dark:text-zinc-500 mb-2">下一篇 <i class="fa-solid fa-arrow-right"></i></div>
                   <div class="text-sm font-medium text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100 line-clamp-2"><%- esc(nextPost.title) %></div>
                 </a>
@@ -466,7 +486,7 @@ var year = new Date().getFullYear();
                   <img src="<%- esc(p.cover) %>" alt="" class="w-full h-40 object-cover rounded-lg mb-4" loading="lazy">
                   <% } %>
                   <h2 class="text-lg md:text-xl font-semibold text-stone-800 dark:text-zinc-100 mb-3 relative z-10">
-                    <% if (p.icon) { %><i class="<%- esc(p.icon) %> post-icon" aria-hidden="true"></i><% } %><a href="./<%- esc(p.id) %>" class="hover:text-amber-600 dark:hover:text-accent"><%- esc(p.title) %></a>
+                    <% if (p.icon) { %><i class="<%- esc(p.icon) %> post-icon" aria-hidden="true"></i><% } %><a href="<%- esc(linkBase) %><%- esc(p.id) %>" class="hover:text-amber-600 dark:hover:text-accent"><%- esc(p.title) %></a>
                   </h2>
                   <% if (p.summary) { %>
                   <p class="text-sm text-stone-500 dark:text-zinc-400 mb-4 line-clamp-2"><%- esc(p.summary) %></p>
@@ -475,7 +495,7 @@ var year = new Date().getFullYear();
                     <span><i class="fa-regular fa-calendar text-xs mr-1"></i><%- esc(p.date) %></span>
                     <% if (p.category) { %>
                     <span>
-                      <a href="./#/category/<%- enc(p.category) %>" class="px-2 py-0.5 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs hover:bg-amber-200 dark:hover:bg-accent/20"><%- esc(p.category) %></a>
+                      <a href="<%- esc(linkBase) %>#/category/<%- enc(p.category) %>" class="px-2 py-0.5 bg-amber-100 dark:bg-accent/10 text-amber-700 dark:text-accent rounded text-xs hover:bg-amber-200 dark:hover:bg-accent/20"><%- esc(p.category) %></a>
                     </span>
                     <% } %>
                     <% var cardTags = (p.tags || []).slice(0, 3); %>
@@ -483,7 +503,7 @@ var year = new Date().getFullYear();
                     <span class="flex items-center gap-1 text-[12px] text-stone-400 dark:text-zinc-600">
                       <i class="fa-solid fa-tag"></i>
                       <% cardTags.forEach(function (t, ti) { %>
-                      <a href="./#/tag/<%- enc(t) %>" class="hover:text-amber-600 dark:hover:text-accent"><%- esc(t) %></a>
+                      <a href="<%- esc(linkBase) %>#/tag/<%- enc(t) %>" class="hover:text-amber-600 dark:hover:text-accent"><%- esc(t) %></a>
                       <% if (ti < cardTags.length - 1) { %><span class="text-stone-300 dark:text-zinc-600">·</span><% } %>
                       <% }); %>
                     </span>
@@ -511,7 +531,7 @@ var year = new Date().getFullYear();
                     <h3 class="text-sm font-medium text-stone-400 dark:text-zinc-400 mb-3"><%= m.name %></h3>
                     <div class="space-y-2">
                       <% m.posts.forEach(function (p) { %>
-                      <a href="./<%- esc(p.id) %>" class="flex items-center gap-4 py-2 px-3 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800/60 group">
+                      <a href="<%- esc(linkBase) %><%- esc(p.id) %>" class="flex items-center gap-4 py-2 px-3 rounded-lg hover:bg-stone-100 dark:hover:bg-zinc-800/60 group">
                         <span class="text-xs font-mono text-stone-400 dark:text-zinc-500 w-8"><%= String(new Date(p.date).getDate()).padStart(2, '0') %></span>
                         <span class="flex-1 text-stone-600 dark:text-zinc-300 group-hover:text-stone-800 dark:group-hover:text-zinc-100"><%- esc(p.title) %></span>
                         <% if (p.category) { %>
@@ -536,7 +556,7 @@ var year = new Date().getFullYear();
             </div>
             <div class="flex flex-wrap gap-3">
               <% tagList.forEach(function (t) { %>
-              <a href="./#/tag/<%- enc(t.name) %>" class="group inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900/60 border border-[#f5f5f4] dark:border-zinc-700 rounded-xl text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent hover:border-amber-300 dark:hover:border-amber-500/50 transition-colors">
+              <a href="<%- esc(linkBase) %>#/tag/<%- enc(t.name) %>" class="group inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900/60 border border-[#f5f5f4] dark:border-zinc-700 rounded-xl text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent hover:border-amber-300 dark:hover:border-amber-500/50 transition-colors">
                 <i class="fa-solid fa-tag text-xs text-stone-400 dark:text-zinc-500 group-hover:text-amber-600 dark:group-hover:text-accent"></i>
                 <span><%- esc(t.name) %></span>
                 <span class="text-xs px-1.5 py-0.5 bg-stone-100 dark:bg-zinc-800 rounded-full text-stone-400 dark:text-zinc-400"><%= t.count %></span>
@@ -553,7 +573,7 @@ var year = new Date().getFullYear();
                 <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100">标签：<span data-filter-name></span></h1>
               </div>
               <p class="text-stone-400 dark:text-zinc-400">共 <span data-filter-count>0</span> 篇文章</p>
-              <a href="./#/tags" class="inline-flex items-center gap-1 mt-3 text-sm text-stone-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent">
+              <a href="<%- esc(linkBase) %>#/tags" class="inline-flex items-center gap-1 mt-3 text-sm text-stone-500 dark:text-zinc-400 hover:text-amber-600 dark:hover:text-accent">
                 <i class="fa-solid fa-arrow-left text-xs"></i>所有标签
               </a>
             </div>
@@ -578,7 +598,7 @@ var year = new Date().getFullYear();
               <div class="text-8xl font-bold text-stone-200 dark:text-zinc-800 mb-4">404</div>
               <h1 class="text-2xl font-bold text-stone-800 dark:text-zinc-100 mb-3">页面不存在</h1>
               <p class="text-stone-500 dark:text-zinc-400 mb-8">你访问的页面已失效或不存在</p>
-              <a href="./#/" class="inline-flex items-center gap-2 px-6 py-3 bg-amber-600 dark:bg-accent text-white dark:text-zinc-900 rounded-xl hover:bg-amber-700 dark:hover:bg-amber-500 font-medium transition-colors">
+              <a href="<%- esc(linkBase) %>#/" class="inline-flex items-center gap-2 px-6 py-3 bg-amber-600 dark:bg-accent text-white dark:text-zinc-900 rounded-xl hover:bg-amber-700 dark:hover:bg-amber-500 font-medium transition-colors">
                 <i class="fa-solid fa-house"></i>返回首页
               </a>
             </div>
@@ -679,7 +699,7 @@ var year = new Date().getFullYear();
             <div id="tags-panel" class="border-t border-stone-100 dark:border-zinc-800/50 px-4 py-3">
               <div class="flex flex-wrap gap-1.5">
                 <% tagList.forEach(function (t) { %>
-                <a href="./#/tag/<%- enc(t.name) %>" data-tag="<%- esc(t.name) %>" class="text-xs px-2.5 py-1 rounded-full transition-colors bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent"><%- esc(t.name) %> <span class="text-stone-400 dark:text-zinc-400"><%= t.count %></span></a>
+                <a href="<%- esc(linkBase) %>#/tag/<%- enc(t.name) %>" data-tag="<%- esc(t.name) %>" class="text-xs px-2.5 py-1 rounded-full transition-colors bg-stone-100 dark:bg-zinc-800 text-stone-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-accent"><%- esc(t.name) %> <span class="text-stone-400 dark:text-zinc-400"><%= t.count %></span></a>
                 <% }); %>
               </div>
             </div>
@@ -732,10 +752,10 @@ var year = new Date().getFullYear();
 
   <!-- 移动端底部导航 -->
   <nav class="site-tabbar md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-zinc-900 border-t border-[#f5f5f4] dark:border-zinc-800 flex justify-around py-2">
-    <a href="./" data-nav="home" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-house text-sm"></i><span>首页</span></a>
-    <a href="./#/archive" data-nav="archive" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-folder text-sm"></i><span>归档</span></a>
-    <a href="./#/tags" data-nav="tags" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-tags text-sm"></i><span>标签</span></a>
-    <a href="./about" data-nav="about" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-user text-sm"></i><span>关于</span></a>
+    <a href="<%- esc(linkBase) %>" data-nav="home" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-house text-sm"></i><span>首页</span></a>
+    <a href="<%- esc(linkBase) %>#/archive" data-nav="archive" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-folder text-sm"></i><span>归档</span></a>
+    <a href="<%- esc(linkBase) %>#/tags" data-nav="tags" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-tags text-sm"></i><span>标签</span></a>
+    <a href="<%- esc(linkBase) %>about" data-nav="about" class="flex flex-col items-center gap-0.5 px-4 py-1 text-xs text-stone-500 dark:text-zinc-400"><i class="fa-solid fa-user text-sm"></i><span>关于</span></a>
   </nav>
 
 <!-- 主题脚本 · CDN（放在 </body> 前，DOM 已就绪；不用 type="module"，
