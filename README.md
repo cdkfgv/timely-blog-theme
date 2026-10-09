@@ -65,7 +65,7 @@ git commit         # ⚠️ 产物必须提交：CDN 只提供「仓库里已提
 
 | CDN 上的路径 | 来自本地 | 大小 |
 |---|---|---|
-| `timely-blog-theme.min.css` | 仓库根同名文件 | ≈49.7 KB / gzip 9.4 KB |
+| `timely-blog-theme.min.css` | 仓库根同名文件 | ≈51 KB / gzip 9.4 KB |
 | `timely-blog-theme.min.js` | 仓库根同名文件 | ≈10.4 KB / gzip 3.9 KB |
 
 外网地址（EJS 里写死了同一串，改仓库名时两边要一起改）：
@@ -92,7 +92,7 @@ CSS 必须是压缩产物、JS 压缩后语法必须可解析 / 体积必须变�
 
 ---
 
-## 两条关键约定
+## 三条关键约定
 
 1. **`theme/TimelyBlogTheme.css` 与两个 `*.min.*` 都是构建产物，不要直接编辑。**
    改样式请改 `theme/src/input.css`，或改 `theme/TimelyBlogTheme.ejs` 里的 class，然后 `npm run build`
@@ -102,6 +102,13 @@ CSS 必须是压缩产物、JS 压缩后语法必须可解析 / 体积必须变�
 2. **新增 / 改名模板文件，要在 `theme/src/input.css` 补一条 `@source`。**
    Tailwind 的自动全域扫描已关闭（`@import "tailwindcss" source(none)`），
    改用显式白名单 —— 否则新文件里的 class 会**静默不生成**（页面看着"没样式"，但构建不报错）。
+
+3. **`theme/src/input.css` 里那行 `@custom-variant dark (&:where(.dark, .dark *));` 不能删。**
+   本主题的明暗靠 `<html class="dark">` 切换（头部内联脚本 + 切换按钮），
+   而 Tailwind v4 的 `dark:` 变体**默认编译成 `@media (prefers-color-scheme: dark)`**（跟随操作系统）。
+   删掉这行后构建照样成功、页面也不报错，但页面样式会劈成两半 —— 一半听按钮、一半听系统：
+   系统深色时切到浅色主题，背景变白而 `dark:text-zinc-400` 之类仍在生效 → **浅灰字压白底，看不清**。
+   `npm run smoke` 的 M 段有 3 条断言把这条锁死。
 
 布局相关数值（容器总宽 / 侧栏宽 / 侧栏顶边）已提成 `theme/src/input.css` 的 `:root` 变量，
 改一处即全联动；对照表与手动调参步骤见 [theme/布局调参速查.md](theme/布局调参速查.md)。

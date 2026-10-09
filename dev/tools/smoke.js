@@ -17,6 +17,7 @@
  *   J. 代码高亮（highlight.js 引用 / 语言名归一 / 5 种 MIME 形态）
  *   K. 笔记图标（#iconClass → 首页卡片 / 详情页标题）
  *   L. 侧边栏完全固定（position: fixed / left 公式跨文件对齐）
+ *   M. 暗色模式是 class 策略（产物里不得有 prefers-color-scheme 的 dark 媒体查询）
  */
 
 import fs from 'node:fs';
@@ -778,6 +779,55 @@ if (containerRem !== null) {
     `CSS 里没有 ${selLiteral} 规则 —— 可能是还没跑 npm run build，`
     + `或该 class 没被 @source 白名单扫到（新增/改名模板文件要在 theme/src/input.css 补一条 @source）`);
 }
+
+/* ------------------------------------------------------------------
+   M 段 · 暗色模式必须是「class 策略」，不能跟随系统
+   ------------------------------------------------------------------
+   本主题的明暗由 `<html class="dark">` 控制：头部内联脚本按 localStorage +
+   prefers-color-scheme 决定是否去掉这个类，切换按钮 toggle 它；手写样式段也
+   全部写成 `.dark .xxx`。**一整套都是 class 策略。**
+
+   但 Tailwind v4 的 dark 变体**默认**编译成 `@media (prefers-color-scheme: dark)`
+   —— 那是「跟随操作系统」。于是页面样式被劈成两半：
+     一半听按钮（手写段 + html.dark），一半听系统（dark:* 工具类）。
+   后果（用户 2026-10-09 报「白色主题有些字看不清」）：
+     系统深色 + 页面切到浅色 → 背景变白，但 dark:text-zinc-400(#a1a1aa) /
+     dark:text-zinc-500 等**仍在生效** → 浅灰字压在白底上，看不清。
+   反向同理：系统浅色 + 页面切深色 → 深字（text-stone-800）压深底。
+
+   修法：在 `theme/src/input.css` 声明
+     `@custom-variant dark (&:where(.dark, .dark *));`
+   本段把它锁死 —— 这行删掉后构建照样成功、页面也不报错，
+   只在「系统主题与页面主题不一致」时错乱，属于极难排查的静默回归。
+   ------------------------------------------------------------------ */
+let themeInputCss = '';
+try {
+  themeInputCss = fs.readFileSync(path.join(config.themeDir, 'src', 'input.css'), 'utf8');
+} catch { /* 下面断言会报错 */ }
+
+check('input.css 声明了 dark 变体的 class 策略（@custom-variant dark）',
+  /@custom-variant\s+dark\s*\(\s*&:where\(\s*\.dark\s*,\s*\.dark\s+\*\s*\)\s*\)/.test(themeInputCss),
+  '缺少 `@custom-variant dark (&:where(.dark, .dark *));` —— '
+  + 'Tailwind v4 默认把 dark: 编译成 @media (prefers-color-scheme:dark)（跟随系统），'
+  + '而本主题的主题切换是 .dark 类策略，两者不一致时文字与背景会撞色');
+
+check('CSS 产物里没有 prefers-color-scheme 的 dark 媒体查询',
+  !/prefers-color-scheme\s*:\s*dark/.test(themeCssSrc),
+  '产物里仍有 @media (prefers-color-scheme:dark) —— dark: 变体没走 class 策略。'
+  + '系统深色时切到浅色主题 → 浅灰字（dark:text-zinc-400）压在白底上，看不清。'
+  + '检查 theme/src/input.css 的 @custom-variant 是否还在');
+
+check('dark: 工具类的选择器确实挂在 .dark 类上',
+  themeCssSrc.indexOf('.dark\\:') >= 0 && /:where\(\.dark,\.dark \*\)/.test(themeCssSrc),
+  '产物里找不到 `:where(.dark,.dark *)` —— dark: 变体没有绑定到 .dark 类');
+
+check('EJS 头部有明暗初始化脚本（读 localStorage，防首屏闪白）',
+  /localStorage\.getItem\('theme'\)/.test(themeEjsSrc),
+  'EJS 头部缺少读 localStorage 的初始化脚本 —— 切换结果不持久化');
+
+check('EJS 的 <html> 默认带 dark 类（内联脚本只负责"去掉"）',
+  /<html[^>]*class="[^"]*\bdark\b/.test(themeEjsSrc),
+  'html 默认不带 dark —— 内联脚本只做移除、不做添加，默认值改成浅色会让脚本逻辑反过来');
 
 /* ------------------------------------------------------------------ */
 
