@@ -1,0 +1,13 @@
+# 统一行尾为 LF（仓库里的 blob 是 LF，但 Windows 工作区出现过 CRLF/混合，
+# 导致「编辑一个文件」被算成「整个文件都改了」，diff 全是噪音）。
+# text=auto 让 git 按归一化后的内容比较与入库；eol=lf 保证检出也是 LF。
+# 二进制文件由 text=auto 的二进制探测自动排除，这里再显式声明一次以防万一。
+* text=auto eol=lf
+*.woff2 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.mp4 binary
