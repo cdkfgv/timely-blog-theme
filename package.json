@@ -1,0 +1,30 @@
+{
+  "name": "trilium-theme",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Trilium Notes 分享主题（Tailwind v4 构建）+ 本地预览/测试工具（ETAPI 真实数据渲染）",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tailwindcss -i ./theme/src/input.css -o ./theme/TimelyBlogTheme.css --minify",
+    "dev": "tailwindcss -i ./theme/src/input.css -o ./theme/TimelyBlogTheme.css --watch --minify",
+    "start": "node dev/server.js",
+    "serve": "node --watch dev/server.js",
+    "state": "node dev/tools/state.js",
+    "smoke": "node dev/tools/smoke.js",
+    "dom": "node dev/tools/dom-test.js",
+    "unit": "node dev/tools/unit-test.js",
+    "script-test": "node dev/tools/script-test.js",
+    "push": "node dev/tools/push-theme.js"
+  },
+  "dependencies": {
+    "ejs": "^3.1.10"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.2.2",
+    "jsdom": "^30.1.1",
+    "tailwindcss": "^4.2.2"
+  }
+}

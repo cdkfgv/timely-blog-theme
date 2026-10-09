@@ -775,8 +775,8 @@ if (containerRem !== null) {
   const after = selIdx >= 0 ? themeCssSrc.slice(selIdx, selIdx + 120) : '';
   check(`Tailwind 产物里有 .max-w-[${containerRem}rem] 的声明（否则该任意值类不生效）`,
     selIdx >= 0 && /max-width\s*:/.test(after),
-    `CSS 里没有 ${selLiteral} 规则 —— Tailwind 不会为 EJS 新写的任意值类生成样式，`
-    + `必须手写进 TimelyBlogTheme.css 的 banner 段（否则页面静默变超宽）`);
+    `CSS 里没有 ${selLiteral} 规则 —— 可能是还没跑 npm run build，`
+    + `或该 class 没被 @source 白名单扫到（新增/改名模板文件要在 theme/src/input.css 补一条 @source）`);
 }
 
 /* ------------------------------------------------------------------ */

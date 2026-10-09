@@ -25,7 +25,7 @@ loadEnvFile(path.join(ROOT_DIR, '.env.local'));
 const num = (v, def) => (v === undefined || v === '' || Number.isNaN(Number(v)) ? def : Number(v));
 const bool = (v, def) => (v === undefined || v === '' ? def : /^(1|true|yes|on)$/i.test(v));
 
-const themeDir = path.resolve(ROOT_DIR, process.env.THEME_DIR || '../TimelyBlogTheme');
+const themeDir = path.resolve(ROOT_DIR, process.env.THEME_DIR || '../theme');
 
 export const config = {
   triliumUrl: (process.env.TRILIUM_URL || 'http://localhost:8080').replace(/\/+$/, ''),

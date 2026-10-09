@@ -1,36 +1,40 @@
-# share-tool
+# dev —— 本地预览与测试工具
 
-本地模拟 **Trilium Notes 分享（share）** 渲染流程的小工具。
+> 这是 **trilium-theme** 仓库的 `dev/` 子目录，在本地复现 Trilium 的分享（share）渲染流程，
+> 让改主题（`theme/`）时不必先复制进 Trilium 就能看效果。
+> 仓库总览、构建方式与发布流程见 [根 README](../README.md)。
 
 解决的问题：改主题（EJS / CSS / JS）时必须先复制进 Trilium 才能看效果，反馈链路过长。
 现在：**本地读真实数据 → 直接渲染你的 EJS → 存盘即刷新**，调试满意后再一键推回 Trilium。
 
 - 数据来源：Trilium 的 **ETAPI**（真实笔记树、真实标签、真实正文）
-- 模板来源：本地 `TimelyBlogTheme.ejs`（每次请求重新读盘，不做缓存）
-- 资源来源：本地 `TimelyBlogTheme.css / .js`（自动把 EJS 里的 CDN 地址替换成本地路径）
+- 模板来源：`theme/TimelyBlogTheme.ejs`（每次请求重新读盘，不做缓存）
+- 资源来源：`theme/TimelyBlogTheme.css / .js`（自动把 EJS 里的 CDN 地址替换成本地路径）
 - 渲染管线：对齐 Trilium `share/content_renderer.ts` + `page.ejs` 的 locals 与链接改写规则
 
 ---
 
 ## 快速开始
 
+⚠️ **所有 npm 命令都在仓库根目录执行** —— 依赖统一装在根 `node_modules`，
+`theme/` 与 `dev/` 不再各自 `npm install`。
+
 ```bash
-cd D:/share-tool
+cd D:/trilium-theme
 npm install
 
-cp .env.example .env        # Windows: copy .env.example .env
-# 编辑 .env，填下面三项：
+cp dev/.env.example dev/.env     # Windows: copy dev\.env.example dev\.env
+# 编辑 dev/.env，填下面三项：
 #   TRILIUM_URL=http://<你的 Trilium 地址>:8080
 #   ETAPI_TOKEN=<Trilium → Options → ETAPI → 新建 token>
 #   ROOT_NOTE_ID=<分享根笔记的 noteId>
 
-npm start                   # 或 npm run dev（server.js 改动自动重启）
+npm start                        # 起预览服务（npm run serve = 改 server.js 自动重启）
 ```
 
 打开 http://localhost:4321/share/
 
-> 仓库里已带一份 `.env`（`ETAPI_MOCK=1`），可以先不填 token 直接 `npm start` 看内置假数据跑通界面；
-> 接了真实数据后把它改成 `ETAPI_MOCK=0`。
+> 不想连 Trilium 先看界面？把 `dev/.env` 的 `ETAPI_MOCK` 设为 `1`，即可用内置假数据启动（不需要 token）。
 
 ---
 
@@ -42,7 +46,7 @@ npm start                   # 或 npm run dev（server.js 改动自动重启）
 | `ETAPI_TOKEN` | — | ETAPI token，`Authorization: <token>` |
 | `ROOT_NOTE_ID` | — | 分享根笔记 noteId，其子树会被预取 |
 | `PORT` | `4321` | 本地端口 |
-| `THEME_DIR` | `../TimelyBlogTheme` | 主题文件目录（默认即同级仓库） |
+| `THEME_DIR` | `../theme` | 主题文件目录（仓库内的 `theme/` 子目录） |
 | `EJS_FILE` / `CSS_FILE` / `JS_FILE` | `TimelyBlogTheme.*` | 主题文件名 |
 | `LIVE_RELOAD` | `1` | 主题文件变化自动刷新浏览器（SSE） |
 | `CACHE_TTL` | `30000` | 笔记元数据/内容缓存毫秒数 |
@@ -96,8 +100,8 @@ ASSET_MODE=as-is npm start
 ## 日常流程
 
 ```bash
-npm start                      # 起服务（建议 npm run dev）
-# 改 D:/TimelyBlogTheme/*.ejs|css|js → 存盘 → 浏览器自动刷新
+npm start                      # 起预览服务（另开一个终端跑 npm run dev 做样式编译）
+# 改 theme/*.ejs|css|js → 存盘 → 浏览器自动刷新
 npm run state                  # 命令行看拉取到的笔记树（debug 标签/层级）
 npm run push                   # 满意后推回 Trilium 的 EJS/CSS/JS 三个 code 笔记
 ```
