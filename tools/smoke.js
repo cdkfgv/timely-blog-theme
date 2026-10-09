@@ -119,9 +119,10 @@ check('collect() 用 getChildNotes() 遍历（不能用 getVisibleChildNotes）'
 /* 详情页内边距：
    · 水平 px 仍是两层（外层 shell + 详情视图根）—— 去掉会明显变紧（正文贴边），
      是此前被用户发现的真实回归，必须保留。
-   · 垂直**上**内边距只有一层（详情视图根用 pt-0）—— 两层会让正文比右侧 fixed 侧栏
-     低 40px，顶部错位（用户报告的"没对齐"）。
-   所以这里分别断言：水平两层、垂直顶层只有一层。 */
+   · 垂直上内边距：详情视图根用 pt-8（2rem）—— 正文顶边因此比右侧 fixed 侧栏
+     低 32px（侧栏 top = 96px）。这是用户定稿的取舍（详情页顶部要留白）；
+     改回 pt-0 则两者齐平（96px），同步改这里的断言即可。
+   所以这里分别断言：水平两层、垂直顶层等于定稿值。 */
 /* ⚠️ 容器宽度不要硬编码：从 EJS 读出 max-w-[Nrem] 再拼正则。
       （曾硬编码 100rem，容器收窄到 92.5rem 后这里全部误报；也曾只写整数 \d+，
         匹配不到 92.5 → 依赖它的断言连环误报。） */
@@ -135,33 +136,36 @@ const CONTAINER_ESC = containerMaxMatch ? containerMaxMatch[1].replace('.', '\\.
 /* ⚠️ 匹配要限定在**同一个 class 属性内部**：`class="[^"]*max-w-...` 里的 `[^"]*`
    可以跨越多个标签（只要中间不出现引号），会把相邻元素也算进来（曾数出 3/4 层）。
    grep 风格的「单标签内」写法：class="..." 里不允许出现 `<` 或 `>`。 */
-/* ⚠️ 必须带上 `py-10 pb-28 md:pb-14` 这个尾巴来锁定「主体容器」：
+/* ⚠️ 必须带上 `py-10 md:pb-14` 这个尾巴来锁定「主体容器」：
    header / 页脚内层也用了同样的 `max-w-[..] px-5` 组合（收窄容器后共享同一宽度），
-   光靠 max-w + px-5 会一并数进来（曾数出 3/4 层）。 */
+   光靠 max-w + px-5 会一并数进来（曾数出 3/4 层）。
+   ⚠️ 别把 `pb-28` 写进尾巴 —— 它是可变的（已把移动端底部留白从 112px 降到 40px），
+   写死会在改 padding 时静默失效（曾因此误报「0 层」）。 */
 const CONTAINER_CLASS = 'max-w-\\[' + CONTAINER_ESC + 'rem\\]';
 const CLS = 'class="[^"<>]*';
 const PAD_BOX = new RegExp(
-  CLS + CONTAINER_CLASS + '[^"<>]*px-5[^"<>]*py-10[^"<>]*pb-28[^"<>]*md:pb-14[^"<>]*"', 'g',
+  CLS + CONTAINER_CLASS + '[^"<>]*px-5[^"<>]*py-10[^"<>]*md:pb-14[^"<>]*"', 'g',
 );
 
 const homePad = (home.body.match(PAD_BOX) || []).length;
 check(`首页只有一层内边距容器（${homePad}）`, homePad === 1, `实际 ${homePad} 层`);
 if (post.status === 200) {
-  /* 详情页有**两**层容器，但垂直上内边距只该有一层：
-       · 外层 shell：py-10 pb-28 md:pb-14   ← 提供唯一的上内边距
-       · 详情视图根：pt-0 pb-28 md:pb-14    ← 上内边距为 0
+  /* 详情页有**两**层容器，靠 py-10 / pt-8 区分：
+       · 外层 shell：py-10 md:pb-14          ← 提供上内边距
+       · 详情视图根：pt-8 pb-28 md:pb-14     ← 再叠 32px 上内边距（定稿值）
      两层的**水平** px 都保留（去掉会正文贴边，是真实回归）。 */
   const outerShell = (post.body.match(PAD_BOX) || []).length;
   check(`详情页外层 shell 保留 py-10 上内边距（${outerShell} 层）`, outerShell === 1,
     `实际 ${outerShell} 层 —— 详情页完全没有上内边距了？`);
 
   const innerRoot = new RegExp(
-    CLS + CONTAINER_CLASS + '[^"<>]*px-5[^"<>]*pt-0[^"<>]*pb-28[^"<>]*md:pb-14[^"<>]*"', 'g',
+    CLS + CONTAINER_CLASS + '[^"<>]*px-5[^"<>]*pt-8[^"<>]*pb-28[^"<>]*md:pb-14[^"<>]*"', 'g',
   );
   const innerRootN = (post.body.match(innerRoot) || []).length;
-  check(`详情视图根用 pt-0 且保留水平 px（${innerRootN} 处）`, innerRootN === 1,
-    `实际 ${innerRootN} 处 —— 详情视图根应写 px-5 sm:px-8 xl:px-10 pt-0 pb-28 md:pb-14：`
-    + `上内边距为 0（否则正文比侧栏低 40px 错位），水平内边距必须保留（否则正文贴边）`);
+  check(`详情视图根用 pt-8 且保留水平 px（${innerRootN} 处）`, innerRootN === 1,
+    `实际 ${innerRootN} 处 —— 详情视图根应写 px-5 sm:px-8 xl:px-10 pt-8 pb-28 md:pb-14：`
+    + `水平内边距必须保留（否则正文贴边）；pt-* 改动需同步改本断言`
+    + `（pt-8 → 正文顶边 128px，比 fixed 侧栏低 32px；pt-0 → 两者齐平 96px）`);
 }
 
 /* ---- D. 服务端 TOC ---- */
