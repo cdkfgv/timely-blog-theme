@@ -457,8 +457,15 @@ const cardIcons = [...home.body.matchAll(
 )].map((m) => ({ cls: m[1], title: m[2] }));
 
 check('首页卡片渲染了笔记图标', cardIcons.length > 0, '一个都没有 → noteIcon() 可能被过滤空了');
-check('卡片图标都带 bx 前缀（已在加载的图标包）',
-  cardIcons.every((i) => /(^|\s)bx/.test(i.cls)),
+/* 图标类名必须是「页面上真的加载了的图标包」之一：
+   - bx*  → boxicons（iconPackCss 注入，服务端按笔记 #iconClass 输出）
+   - fa*  → FontAwesome（EJS 里从 cdnjs 引入）
+   ⚠️ 曾经只放行 bx —— 用户给笔记设 #iconClass="fa-solid fa-a" 时会误报失败（其实能正常渲染）。 */
+check('FontAwesome 样式表已加载（fa-* 图标可用）',
+  home.body.includes('font-awesome/6.5.1/css/all.min.css'),
+  '缺 FontAwesome <link> → 卡片上的 fa-* 图标会渲染成空白方块');
+check('卡片图标类名属于已加载的图标包（bx* / fa*）',
+  cardIcons.every((i) => /(^|\s)(bx|fa)/.test(i.cls)),
   cardIcons.map((i) => i.cls).join(' / '));
 
 /* 图标必须出现在标题链接之前（A 方案：内联在标题左侧） */
@@ -573,15 +580,52 @@ check('侧边栏不再用 sticky（sticky 必有"先滚一段"的过程）',
   !/\bsticky\b/.test(asideClass),
   'aside 仍带 sticky —— sticky 的语义是随滚动走一段再吸住，做不到"一次都不动"');
 
-/* L3 · CSS 规则：fixed 五要素 */
-const asideRule = themeCssSrc.match(/aside\.aside-fixed\s*\{[\s\S]*?\n  \}/);
+/* L3 · CSS 规则：fixed 五要素
+   ⚠️ 产物是 Tailwind minify 后的单行 CSS（`aside.aside-fixed{...}` 无换行、无空格），
+      所以**不能**再用 `\{[\s\S]*?\n  \}` 这种依赖缩进的正则 —— 改用花括号配对提取。
+   ⚠️ 定位值自 v4 构建链路起改为 CSS 变量驱动（--layout-top / --layout-container /
+      --layout-aside），规则体里是 `top:var(--layout-top)` 而非字面量 `top:6rem`。
+      因此断言改成：① 规则体里必须**引用**变量；② 变量在 :root 里**有定义**；
+      ③ 变量的值与 EJS 从 class 里读出的值一致（L4/L5 负责）。 */
+const extractRule = (css, selector) => {
+  const i = css.indexOf(selector);
+  if (i < 0) return '';
+  const open = css.indexOf('{', i);
+  if (open < 0) return '';
+  let depth = 0;
+  for (let j = open; j < css.length; j++) {
+    if (css[j] === '{') depth++;
+    else if (css[j] === '}') {
+      depth--;
+      if (depth === 0) return css.slice(open + 1, j);
+    }
+  }
+  return '';
+};
+const ruleBody = extractRule(themeCssSrc, 'aside.aside-fixed');
 check('主题 CSS 有 aside.aside-fixed 规则',
-  !!asideRule, 'CSS banner 段缺少 aside.aside-fixed');
-const ruleBody = asideRule ? asideRule[0] : '';
+  !!ruleBody, 'CSS banner 段缺少 aside.aside-fixed');
+
+/* :root 里的布局变量（单一事实来源）*/
+const layoutVar = (name) => {
+  const m = themeCssSrc.match(new RegExp(`--${name}\\s*:\\s*([^;}]+)`));
+  return m ? m[1].trim() : '';
+};
+const varTop = layoutVar('layout-top');
+const varContainer = layoutVar('layout-container');
+const varAside = layoutVar('layout-aside');
+check('CSS :root 定义了 --layout-top（侧栏顶边的单一事实来源）',
+  /^[\d.]+rem$/.test(varTop), `--layout-top = "${varTop}"（应为 Nrem）`);
+check('CSS :root 定义了 --layout-container（容器宽）',
+  /^[\d.]+rem$/.test(varContainer), `--layout-container = "${varContainer}"（应为 Nrem）`);
+check('CSS :root 定义了 --layout-aside（侧栏宽）',
+  /^\d+px$/.test(varAside), `--layout-aside = "${varAside}"（应为 Npx）`);
+
 check('侧边栏规则含 position: fixed',
   /position:\s*fixed/.test(ruleBody), ruleBody.slice(0, 120) || '(规则未取到)');
-check('侧边栏规则含 top（垂直固定位置）',
-  /top:\s*[\d.]+rem/.test(ruleBody), '缺少 top —— 垂直位置不定');
+check('侧边栏 top 引用 --layout-top（而非硬编码）',
+  /top:\s*var\(--layout-top\)/.test(ruleBody),
+  '缺少 top:var(--layout-top) —— 垂直位置不定或硬编码了值');
 check('侧边栏规则含 left（水平对齐 grid 列）',
   /left:\s*calc\(/.test(ruleBody), '缺少 left —— fixed 后不再自动对齐列位置');
 check('侧边栏规则含 max-height（超高时兜底）',
@@ -615,54 +659,62 @@ check('能从 EJS 读出主体布局容器的竖向内边距（py-N，锚定 fle
   containerPyRem !== null,
   '未匹配到主体容器上的 py-* —— fixed 的 top 需要它来补位');
 
-const asideTopRem = ruleBody.match(/top:\s*([\d.]+)rem/);
-const asideTop = asideTopRem ? Number(asideTopRem[1]) : null;
+const asideTop = varTop ? Number(varTop.replace('rem', '')) : null;
 if (headerRem !== null && asideTop !== null) {
   const toPx = (rem) => Math.round(rem * 16);
   const exactTop = headerRem + (containerPyRem ?? 0);
   check(`侧边栏顶部不被 header 遮挡（top ${toPx(asideTop)}px ≥ header ${toPx(headerRem)}px）`,
     asideTop >= headerRem,
     `top 比 header 矮 ${toPx(headerRem - asideTop)}px → 卡片上沿会被压住`);
-  check(`fixed 的 top 正好补回文档流落点（top ${toPx(asideTop)}px = header+py ${toPx(exactTop)}px）`,
+  check(`--layout-top 正好补回文档流落点（top ${toPx(asideTop)}px = header+py ${toPx(exactTop)}px）`,
     asideTop === exactTop,
     `fixed 脱离文档流后必须**恰好**补回容器 padding-top（${containerPyRem}rem）：`
-    + `期望 top = ${exactTop}rem（header ${headerRem}rem + py ${containerPyRem}rem），`
+    + `期望 --layout-top = ${exactTop}rem（header ${headerRem}rem + py ${containerPyRem}rem），`
     + `实际 ${asideTop}rem → `
     + (asideTop < exactTop
       ? `比原来偏上 ${toPx(exactTop - asideTop)}px`
       : `比原来偏低/偏下 ${toPx(asideTop - exactTop)}px（多加了间距，原来没有这一项）`));
 }
 
-/* L4b · max-height 的减数必须与 top 同值（同坐标系，防只改一处） */
-const mhRem = ruleBody.match(/max-height:\s*calc\(100vh\s*-\s*([\d.]+)rem/);
-check('max-height 的减数与 top 一致（限高与定位同坐标系）',
-  !!mhRem && asideTop !== null && Number(mhRem[1]) === asideTop,
-  `max-height 减数=${mhRem ? mhRem[1] : '(未取到)'}rem，top=${asideTop}rem —— 两者应一致`);
+/* L4b · max-height 必须引用同一个 --layout-top（防只改一处）。
+   ⚠️ 变量驱动后不再比较"字面量相等"，而是断言公式里引用了**同一个变量** ——
+      这样改 --layout-top 一处，两个消费者自动同步，结构上不可能不一致。 */
+check('max-height 引用了 --layout-top（与 top 同坐标系，防只改一处）',
+  /max-height:\s*calc\(100vh\s*-\s*var\(--layout-top\)/.test(ruleBody),
+  `max-height 必须以 var(--layout-top) 作减数，实际规则体：${ruleBody.slice(0, 160)}`);
 
-/* L5 · left 公式里的常量必须与 EJS 一致（防「改了容器宽度忘了改公式」）
-   ⚠️ 只取 `left:` 那条声明来校验 —— 规则体里还有注释，如果对整个 ruleBody
-      做正则，注释里出现的字面量会误伤（曾因此漏掉一次真实回归）。 */
-const leftDecl = ruleBody.match(/\bleft:\s*([^;]+);/);
+/* L5 · left 公式必须引用同一组变量（防「改了容器宽度忘了改公式」）
+   ⚠️ 变量驱动后，检查点从"字面量等于 EJS 值"变成"公式引用了变量" +
+      "变量值等于 EJS 值"，两段合起来等价，但不再有"漏改一处"的可能。 */
+const leftDecl = ruleBody.match(/\bleft:\s*([^;]+);?/);
 const leftBody = leftDecl ? leftDecl[1] : '';
 check('能从 CSS 里提取 left 声明（只取声明本身，避开注释）',
   leftBody.length > 0, '未匹配到 left: ...; 声明');
 
-if (containerRem !== null) {
-  check(`left 公式引用了容器的 max-width（${containerRem}rem）`,
-    new RegExp(`100vw\\s*-\\s*${containerRem}rem`).test(leftBody),
-    `left 声明里没找到 "100vw - ${containerRem}rem" —— 容器宽度改了但 left 公式没同步。实际：${leftBody}`);
-}
-if (asideW !== null) {
-  check(`left 公式引用了侧边栏宽度（${asideW}px，作为减数）`,
-    new RegExp(`-\\s*${asideW}px`).test(leftBody),
-    `left 声明里没找到 "- ${asideW}px" —— 侧边栏宽度改了但 left 公式没同步。实际：${leftBody}`);
-}
+check('left 公式引用了 --layout-container（容器宽）',
+  /100vw\s*-\s*var\(--layout-container\)/.test(leftBody),
+  `left 里没找到 "100vw - var(--layout-container)" —— 容器宽度改了但 left 公式没同步。实际：${leftBody}`);
+check('left 公式引用了 --layout-aside（侧栏宽，作减数）',
+  /-\s*var\(--layout-aside\)/.test(leftBody),
+  `left 里没找到 "- var(--layout-aside)" —— 侧栏宽度改了但 left 公式没同步。实际：${leftBody}`);
 check('left 公式用 min() 处理容器未满宽（否则窄屏会算错）',
   /min\(\s*100vw/.test(ruleBody),
   '缺少 min(100vw, ...) —— 容器窄于 max-width 时内容宽应为 100vw');
 check('left 公式用 max() 处理容器居中（否则宽屏会偏左）',
   /max\(\s*0px/.test(ruleBody),
   '缺少 max(0px, ...) —— 宽屏时容器居中偏移会被算成负数');
+
+/* L5b · 变量值必须与 EJS 里 class 读出的值一致（变量驱动后的一致性锚点） */
+if (containerRem !== null && varContainer) {
+  check(`--layout-container（${varContainer}）= EJS 容器的 max-w（${containerRem}rem）`,
+    Number(varContainer.replace('rem', '')) === containerRem,
+    `容器宽不一致：CSS 变量 ${varContainer} vs EJS max-w-[${containerRem}rem]`);
+}
+if (asideW !== null && varAside) {
+  check(`--layout-aside（${varAside}）= EJS 侧栏的 w-[...]（${asideW}px）`,
+    Number(varAside.replace('px', '')) === asideW,
+    `侧栏宽不一致：CSS 变量 ${varAside} vs EJS w-[${asideW}px]`);
+}
 
 /* L6 · 内边距分段必须与 EJS 的 sm:px-8 / xl:px-10 对应 */
 const hasSmPad = /--aside-pad:\s*2rem/.test(themeCssSrc);     /* px-8 = 2rem */
