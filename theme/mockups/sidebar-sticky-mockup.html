@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>侧边栏 fixed 固定行为验证 · TimelyBlogTheme</title>
+<style>
+  /* ------------------------------------------------------------------
+     这个 mockup 只做一件事：让你**直接看到滚动行为**，确认右侧是否按预期固定。
+     用的是与**主题最终方案（PLAN.md 阶段 8.10）完全一致**的 CSS 关键值：
+       header   sticky top-0  + h-14   -> 3.5rem / 56px
+       aside    position: fixed
+                top: 6rem              -> 96px = header 56px + 容器 py-10 40px
+                left: calc(...)        -> 复刻主题里"居中 grid 列"的公式
+                max-height calc(100vh - 6rem - 1.5rem)
+                overflow-y auto
+     ⚠️ 注意 top 是 6rem：fixed 脱离文档流后不再享受容器的 py-10 上内边距，必须自己补回来。
+        补的**只有** py-10 那 2.5rem —— **不要再额外加"呼吸间距"**：
+        96px 这个落点本身就含 header(56) 到卡片(40px) 的净间距，已经够了。
+     页面刻意做得比视口长（左侧塞很多卡片），方便滚动观察。
+     ------------------------------------------------------------------ */
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: #fafaf9;
+    color: #1c1917;
+    font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  /* ============ 顶部导航（与主题同款参数） ============ */
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    height: 3.5rem;                    /* h-14 = 56px */
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid #f5f5f4;
+    display: flex;
+    align-items: center;
+    padding: 0 1.5rem;
+    font-weight: 600;
+    color: #292524;
+  }
+  .header .tag {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 500;
+    color: #a8a29e;
+  }
+
+  /* ============ 主体两列 grid ============ */
+  .wrap {
+    max-width: 92.5rem;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem;             /* py-10 px-6 */
+    display: grid;
+    grid-template-columns: 1fr 270px;
+    align-items: start;                 /* lg:items-start */
+    gap: 2.5rem;
+  }
+
+  /* ============ 左侧（故意很长，制造滚动） ============ */
+  .card {
+    background: #fff;
+    border: 1px solid #e7e5e4;
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .card h3 { margin: 0 0 0.5rem; font-size: 1.05rem; }
+  .card p { margin: 0; color: #78716c; font-size: 13px; }
+  .card .meta { margin-top: 0.75rem; font-size: 12px; color: #a8a29e; }
+
+  /* ============ 右侧：本次要验证的对象 ============
+     ⚠️ 主题里容器是 max-w-[92.5rem] / px-5 sm:px-8 xl:px-10，
+        这里 mockup 用同样的 92.5rem、只把内边距缩成 1.5rem 以便整页可见 ——
+        但 left 的**公式结构完全一致**，是等比例复刻。
+     ⚠️ mockup 里 .wrap 没有 transform/filter/perspective/contain，
+        与真实页一致（否则会破坏 fixed 的包含块）。 */
+  .aside-fixed {
+    position: fixed;
+    top: 6rem;                                  /* = header 3.5rem + 容器 py-10 2.5rem = 96px */
+    --aside-pad: 1.5rem;
+    --aside-inner: calc(min(100vw, 92.5rem) - 2 * var(--aside-pad));
+    left: calc(max(0px, (100vw - 92.5rem) / 2) + var(--aside-inner) - 270px);
+    width: 270px;
+    max-height: calc(100vh - 6rem - 1.5rem);    /* 视口高 − 固定位 − 底部留白 */
+    overflow-y: auto;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;                                  /* space-y-4 的等价物 */
+    scrollbar-width: thin;
+    scrollbar-color: #d6d3d1 transparent;
+  }
+  .aside-fixed::-webkit-scrollbar { width: 6px; }
+  .aside-fixed::-webkit-scrollbar-track { background: transparent; }
+  .aside-fixed::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 3px; }
+
+  .side-card {
+    background: #fff;
+    border: 1px solid #d6d3d1;
+    border-radius: 0.75rem;
+    padding: 1.25rem;
+    flex: none;
+  }
+  .side-card.hint { background: #fffbeb; border-color: #fcd34d; }
+  .side-card h4 { margin: 0 0 0.5rem; font-size: 13px; color: #b45309; }
+  .side-card ul { margin: 0; padding-left: 1.1rem; font-size: 12.5px; color: #57534e; }
+  .side-card li { margin: 0.3rem 0; }
+  .avatar { width: 3.5rem; height: 3.5rem; border-radius: 50%; background: #e7e5e4; }
+  .side-head { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem; }
+  .side-head b { display: block; font-size: 15px; }
+  .side-head span { font-size: 12px; color: #d97706; }
+
+  /* ============ 底部标尺：帮助你看滚动位置 ============ */
+  .ruler {
+    max-width: 92.5rem;
+    margin: 0 auto 3rem;
+    padding: 1rem 1.5rem;
+    font-size: 12px;
+    color: #a8a29e;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  @media (max-width: 1023px) {
+    .wrap { grid-template-columns: 1fr; }
+    .aside-fixed { position: static; width: auto; max-height: none; overflow: visible; }
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <span>Timely</span>
+  <span class="tag">header · sticky top-0 · 56px（模拟真实高度）</span>
+</header>
+
+<div class="wrap">
+  <main>
+    <div class="card" style="background:#fffbeb;border-color:#fcd34d">
+      <h3>↓ 往下滚，观察右边</h3>
+      <p>右边应该<b>一个像素都不动</b>（不是"滚一段后吸住"，而是从头到尾固定在视口里）。</p>
+    </div>
+    <div class="card"><h3>文章卡片 1</h3><p>滚动时左侧列表正常上移。</p><div class="meta">2026-09-30</div></div>
+    <div class="card"><h3>文章卡片 2</h3><p>右侧的卡片应该一直看得见。</p><div class="meta">2026-09-29</div></div>
+    <div class="card"><h3>文章卡片 3</h3><p>这就是「右侧固定」的效果。</p><div class="meta">2026-09-28</div></div>
+    <div class="card"><h3>文章卡片 4</h3><p>继续滚。</p><div class="meta">2026-09-27</div></div>
+    <div class="card"><h3>文章卡片 5</h3><p>右侧不应有任何位移。</p><div class="meta">2026-09-26</div></div>
+    <div class="card"><h3>文章卡片 6</h3><p>滚到页面底部看看。</p><div class="meta">2026-09-25</div></div>
+    <div class="card"><h3>文章卡片 7</h3><p>右侧到页面底部时也应该还固定着。</p><div class="meta">2026-09-24</div></div>
+    <div class="card"><h3>文章卡片 8</h3><p>最后一张。</p><div class="meta">2026-09-23</div></div>
+  </main>
+
+  <aside class="aside-fixed">
+    <div class="side-card hint">
+      <h4>验证要点</h4>
+      <ul>
+        <li>往下滚 → 右侧<b>完全不动</b>（`position: fixed`）</li>
+        <li>顶部落点 = header 56px + 容器 py-10 40px = 96px → <b>与改动前完全一致</b></li>
+        <li>水平位置对齐左列右侧（`left` 公式复刻主题）</li>
+        <li>右侧内容比视口高时 → <b>它自己内部滚</b>，不影响整页</li>
+      </ul>
+    </div>
+
+    <div class="side-card">
+      <div class="side-head">
+        <div class="avatar"></div>
+        <div><b>博主名字</b><span>个性签名</span></div>
+      </div>
+      <p style="margin:0;font-size:12.5px;color:#78716c">这里用来模拟真实的作者信息卡，滚动时应始终可见。</p>
+    </div>
+
+    <div class="side-card">
+      <h4 style="color:#57534e;margin-bottom:0.6rem">目录</h4>
+      <p style="margin:0;font-size:12.5px;color:#78716c">
+        文章页这里会有目录。把右侧塞长一点，就能看到
+        <b>「内部滚动」</b>的效果 —— 右侧自己出现滚动条，页面滚动不受影响。
+      </p>
+    </div>
+
+    <div class="side-card" style="height:340px">
+      <p style="margin:0;font-size:12.5px;color:#a8a29e">
+        （一块占位高卡片，用来把右侧撑得比视口高，<br>以验证 max-height + overflow-y 生效。）
+      </p>
+    </div>
+
+    <div class="side-card">
+      <p style="margin:0;font-size:12.5px;color:#a8a29e">
+        能滚到这里 → 说明右侧内部滚动正常。
+      </p>
+    </div>
+  </aside>
+</div>
+
+<div class="ruler">
+  滚动位置：<span id="pos">0</span> px ｜ 若右侧在滚动时保持吸顶，则本方案生效。
+</div>
+
+<script>
+  var pos = document.getElementById('pos');
+  var raf = 0;
+  window.addEventListener('scroll', function () {
+    if (raf) return;
+    raf = requestAnimationFrame(function () {
+      pos.textContent = Math.round(window.scrollY);
+      raf = 0;
+    });
+  }, { passive: true });
+</script>
+</body>
+</html>

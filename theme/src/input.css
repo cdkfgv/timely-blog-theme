@@ -1,0 +1,431 @@
+/*
+ * TimelyBlogTheme 样式入口（Tailwind v4）
+ * ==========================================================================
+ * 构建：npm run build      （或 npm run dev 监听）
+ * 产物：../TimelyBlogTheme.css（被 Trilium / share-tool 直接引用）
+ *
+ * 本文件由两部分组成：
+ *   1. @import "tailwindcss" + @source —— 扫描 EJS/JS 里的 class，自动生成工具类
+ *      （含 max-w-[98rem] 这类任意值类，改 EJS 后重新构建即可，不用手写 CSS）
+ *   2. 手写样式段 —— 组件样式 / 交互状态 / 侧栏 fixed 公式等，不参与工具类生成
+ *
+ * ⚠️ 不要在产物 TimelyBlogTheme.css 里直接改样式 —— 下次构建会整个覆盖。
+ * ==========================================================================
+ */
+/* ⚠️ source(none) 关掉 Tailwind 的「自动全域扫描」。
+   默认行为会扫整个项目（除 .gitignore），把 PLAN.md / 布局调参速查.md / mockups 里
+   当示例写的 class（h-20、animate-pulse、max-w-[87.5rem]…）也当成真实使用，产出垃圾类。
+   关掉后只认下面显式声明的 @source —— 新增模板文件时必须在此补一条，否则其 class 不生成。 */
+@import "tailwindcss" source(none);
+
+/* 扫描范围：模板与脚本里出现的 class（唯一来源） */
+@source "../TimelyBlogTheme.ejs";
+@source "../TimelyBlogTheme.js";
+@source "../文章模版.html";
+
+/* --------------------------------------------------------------------------
+ * 主题变量（覆写 Tailwind 默认值 / 新增自定义色）
+ * -------------------------------------------------------------------------- */
+@theme {
+--font-sans: 'Alibaba PuHuiTi 3', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+    --color-orange-50: oklch(98% 0.016 73.684);
+    --color-orange-200: oklch(90.1% 0.076 70.697);
+    --color-orange-500: oklch(70.5% 0.213 47.604);
+    --color-orange-950: oklch(26.6% 0.079 36.259);
+    --color-amber-50: oklch(98.7% 0.022 95.277);
+    --color-amber-100: oklch(96.2% 0.059 95.617);
+    --color-amber-200: oklch(92.4% 0.12 95.746);
+    --color-amber-300: oklch(87.9% 0.169 91.605);
+    --color-amber-400: oklch(82.8% 0.189 84.429);
+    --color-amber-500: oklch(76.9% 0.188 70.08);
+    --color-amber-600: oklch(66.6% 0.179 58.318);
+    --color-amber-700: oklch(55.5% 0.163 48.998);
+    --color-amber-900: oklch(41.4% 0.112 45.904);
+    --color-amber-950: oklch(27.9% 0.077 45.635);
+    --color-yellow-100: oklch(97.3% 0.071 103.193);
+    --color-yellow-400: oklch(85.2% 0.199 91.936);
+    --color-yellow-500: oklch(79.5% 0.184 86.047);
+    --color-sky-400: oklch(74.6% 0.16 232.661);
+    --color-sky-600: oklch(58.8% 0.158 241.966);
+    --color-zinc-100: oklch(96.7% 0.001 286.375);
+    --color-zinc-200: oklch(92% 0.004 286.32);
+    --color-zinc-300: oklch(87.1% 0.006 286.286);
+    --color-zinc-400: oklch(70.5% 0.015 286.067);
+    --color-zinc-500: oklch(55.2% 0.016 285.938);
+    --color-zinc-600: oklch(44.2% 0.017 285.786);
+    --color-zinc-700: oklch(37% 0.013 285.805);
+    --color-zinc-800: oklch(27.4% 0.006 286.033);
+    --color-zinc-900: oklch(21% 0.006 285.885);
+    --color-zinc-950: oklch(14.1% 0.005 285.823);
+    --color-stone-50: oklch(98.5% 0.001 106.423);
+    --color-stone-100: oklch(97% 0.001 106.424);
+    --color-stone-200: oklch(92.3% 0.003 48.717);
+    --color-stone-300: oklch(86.9% 0.005 56.366);
+    --color-stone-400: oklch(70.9% 0.01 56.259);
+    --color-stone-500: oklch(55.3% 0.013 58.071);
+    --color-stone-600: oklch(44.4% 0.011 73.639);
+    --color-stone-700: oklch(37.4% 0.01 67.558);
+    --color-stone-800: oklch(26.8% 0.007 34.298);
+    --color-black: #000;
+    --color-white: #fff;
+    --spacing: 0.25rem;
+    --container-lg: 32rem;
+    --text-xs: 0.75rem;
+    --text-xs--line-height: calc(1 / 0.75);
+    --text-sm: 0.875rem;
+    --text-sm--line-height: calc(1.25 / 0.875);
+    --text-base: 1rem;
+    --text-base--line-height: calc(1.5 / 1);
+    --text-lg: 1.125rem;
+    --text-lg--line-height: calc(1.75 / 1.125);
+    --text-xl: 1.25rem;
+    --text-xl--line-height: calc(1.75 / 1.25);
+    --text-2xl: 1.5rem;
+    --text-2xl--line-height: calc(2 / 1.5);
+    --text-3xl: 1.875rem;
+    --text-3xl--line-height: calc(2.25 / 1.875);
+    --text-8xl: 6rem;
+    --text-8xl--line-height: 1;
+    --font-weight-medium: 500;
+    --font-weight-semibold: 600;
+    --font-weight-bold: 700;
+    --leading-tight: 1.25;
+    --leading-relaxed: 1.625;
+    --radius-md: 0.375rem;
+    --radius-lg: 0.5rem;
+    --radius-xl: 0.75rem;
+    --animate-pulse: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    --blur-sm: 8px;
+    --blur-xl: 24px;
+    --blur-3xl: 64px;
+    --default-transition-duration: 150ms;
+    --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    --default-font-family: var(--font-sans);
+    --default-mono-font-family: var(--font-mono);
+    /* 自定义强调色：EJS 里用 dark:bg-accent / dark:text-accent 等类消费 */
+    --color-accent: #d97706;
+}
+
+/* ==========================================================================
+ * 手写主题样式（非 Tailwind 产物）
+ * 从 TimelyBlogTheme.ejs 内联 <style> 迁出，避免每页重复下发。
+ * 注意：TimelyBlogTheme.css 上半部分是 Tailwind v4 构建产物，
+ *       重新构建时会覆盖整个文件 —— 重构建后需把本段贴回文件末尾。
+ * ========================================================================== */
+::selection { background-color: #d97706; color: #fff; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #a8a29e; }
+.dark ::selection { background-color: #f59e0b; color: #18181b; }
+.dark ::-webkit-scrollbar-thumb { background: #3f3f46; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+pre[class*="language-"] { margin: 0; padding: 0; border-radius: 0 0 0.75rem 0.75rem; max-height: 24rem; overflow-y: auto; }
+code[class*="language-"] { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.7; }
+
+/* 代码块头部 */
+.code-block { border-radius: 0.75rem; overflow: hidden; border: 1px solid #e7e5e4; margin: 1.75rem 0; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.dark .code-block { border-color: #27272a; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+.code-header { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 1rem; background: #f5f5f4; border-bottom: 1px solid #e7e5e4; border-radius: 0.75rem 0.75rem 0 0; color: #a8a29e; font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; }
+.dark .code-header { background: #27272a; border-color: #3f3f46; color: #71717a; }
+.code-block pre { margin: 0 !important; border-radius: 0 0 0.75rem 0.75rem !important; }
+.copy-btn { font-size: 0.75rem; cursor: pointer; color: #a8a29e; }
+.copy-btn:hover { color: #57534e; }
+.dark .copy-btn:hover { color: #d4d4d8; }
+
+/* 文章正文 */
+.prose-content { color: #44403c; font-size: 1rem; line-height: 1.9; word-break: break-word; overflow-wrap: break-word; }
+.dark .prose-content { color: #d4d4d8; }
+.prose-content h1, .prose-content h2, .prose-content h3, .prose-content h4, .prose-content h5, .prose-content h6 { font-weight: 700; line-height: 1.35; scroll-margin-top: 5rem; color: #1c1917; }
+.dark .prose-content h1, .dark .prose-content h2, .dark .prose-content h3, .dark .prose-content h4, .dark .prose-content h5, .dark .prose-content h6 { color: #f4f4f5; }
+.prose-content h1 { font-size: 1.875rem; margin: 2.5rem 0 1.25rem; }
+.prose-content h2 { font-size: 1.5rem; margin: 2.5rem 0 1rem; padding: 0.625rem 0 0.5rem 0.875rem; border-bottom: 1px solid #e7e5e4; border-left: 3px solid #d97706; }
+.dark .prose-content h2 { border-bottom-color: #27272a; border-left-color: #f59e0b; }
+.prose-content h3 { font-size: 1.25rem; margin: 2rem 0 0.75rem; }
+.prose-content h4 { font-size: 1.1rem; margin: 1.75rem 0 0.625rem; color: #292524; }
+.dark .prose-content h4 { color: #e4e4e7; }
+.prose-content h5 { font-size: 1rem; margin: 1.5rem 0 0.5rem; color: #57534e; }
+.dark .prose-content h5 { color: #a1a1aa; }
+.prose-content h6 { font-size: 0.9rem; margin: 1.5rem 0 0.5rem; color: #78716c; text-transform: uppercase; letter-spacing: 0.05em; }
+.dark .prose-content h6 { color: #71717a; }
+.prose-content p { margin-bottom: 1.25rem; }
+.prose-content a { color: #b45309; text-decoration: none; background: linear-gradient(to right, #d97706, #d97706) left bottom / 0 1px no-repeat; transition: background-size 0.25s ease, color 0.15s; }
+.prose-content a:hover { background-size: 100% 1px; color: #92400e; }
+.dark .prose-content a { color: #fbbf24; background: linear-gradient(to right, #f59e0b , #f59e0b) left bottom / 0 1px no-repeat; }
+.dark .prose-content a:hover { background-size: 100% 1px; color: #fcd34d; }
+.prose-content strong { font-weight: 700; color: #1c1917; }
+.dark .prose-content strong { color: #f4f4f5; }
+.prose-content em { font-style: italic; }
+.prose-content ul, .prose-content ol { padding-left: 1.25rem; margin-bottom: 1.25rem; }
+.prose-content ul { list-style: none; }
+.prose-content ul > li { position: relative; padding-left: 1rem; }
+.prose-content ul > li::before { content: ''; position: absolute; left: 0; top: 0.65em; width: 6px; height: 6px; border-radius: 50%; background: #d97706; }
+.dark .prose-content ul > li::before { background: #f59e0b; }
+.prose-content ul > li > ul > li::before { width: 5px; height: 5px; border-radius: 0; background: transparent; border: 1.5px solid #d97706; top: 0.7em; }
+.dark .prose-content ul > li > ul > li::before { border-color: #f59e0b; }
+.prose-content ol { list-style: none; counter-reset: prose-ol; }
+.prose-content ol > li { position: relative; padding-left: 1.5rem; counter-increment: prose-ol; }
+.prose-content ol > li::before { content: counter(prose-ol) '.'; position: absolute; left: 0; top: 0; font-weight: 600; font-size: 0.875em; color: #d97706; font-family: 'JetBrains Mono', monospace; }
+.dark .prose-content ol > li::before { color: #f59e0b; }
+.prose-content li { margin-bottom: 0.375rem; line-height: 1.75; }
+.prose-content code:not([class*="language-"]) { font-family: 'JetBrains Mono', monospace; font-size: 0.85em; background: #fef3c7; color: #92400e; padding: 0.15em 0.45em; border-radius: 0.3rem; border: 1px solid rgba(217,119,6,0.15); }
+.dark .prose-content code:not([class*="language-"]) { background: #27272a; color: #fbbf24; border-color: rgba(245,158,11,0.15); }
+.prose-content hr { border: none; margin: 2.5rem 0; height: 1px; background: linear-gradient(to right, transparent, #d6d3d1 20%, #d6d3d1 80%, transparent); }
+.dark .prose-content hr { background: linear-gradient(to right, transparent, #3f3f46 20%, #3f3f46 80%, transparent); }
+.prose-content img { max-width: 100%; border-radius: 0.75rem; margin: 1.75rem 0; cursor: zoom-in; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+.dark .prose-content img { box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+.prose-content figure { margin: 1.75rem 0; text-align: center; }
+.prose-content figure img { display: inline-block; margin: 0; }
+.prose-content figcaption { font-size: 0.8rem; color: #78716c; margin-top: 0.75rem; line-height: 1.5; font-style: italic; }
+.dark .prose-content figcaption { color: #71717a; }
+.prose-content .image-style-align-right { float: right; margin: 0 0 1rem 1.5rem; }
+.prose-content .image-style-align-left { float: left; margin: 0 1.5rem 1rem 0; }
+.prose-content .image-style-align-right img,
+.prose-content .image-style-align-left img { margin: 0; }
+.prose-content .image-style-align-right figure,
+.prose-content .image-style-align-left figure { margin: 0; }
+.prose-content blockquote { border-left: 3px solid #d97706; background: linear-gradient(135deg, rgba(217,119,6,0.06), rgba(217,119,6,0.02)); padding: 1rem 1.25rem 1rem 1.5rem; margin: 1.75rem 0; border-radius: 0 0.75rem 0.75rem 0; color: #57534e; font-style: italic; }
+.prose-content blockquote p:last-child { margin-bottom: 0; }
+.dark .prose-content blockquote { border-left-color: #f59e0b; background: linear-gradient(135deg, rgba(245,158,11,0.08), rgba(245,158,11,0.02)); color: #a1a1aa; }
+.prose-content table { width: 100%; border-collapse: collapse; margin: 1.75rem 0; font-size: 0.875rem; border-radius: 0.5rem; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border: 1px solid #e7e5e4; }
+.dark .prose-content table { box-shadow: 0 1px 3px rgba(0,0,0,0.2); border-color: #3f3f46; }
+.prose-content thead th { padding: 0.875rem 1rem; font-weight: 600; text-align: center; background: linear-gradient(to bottom, #fafaf9, #f5f5f4); border-bottom: 2px solid #d6d3d1; color: #44403c; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; }
+.dark .prose-content thead th { background: linear-gradient(to bottom, #27272a, #1f1f23); border-bottom-color: #52525b; color: #a1a1aa; }
+.prose-content tbody tr:not(:last-child) { border-bottom: 1px solid #f5f5f4; }
+.dark .prose-content tbody tr:not(:last-child) { border-bottom-color: #27272a; }
+.prose-content tbody tr:hover { background: rgba(217,119,6,0.04); }
+.dark .prose-content tbody tr:hover { background: rgba(245,158,11,0.06); }
+.prose-content td { padding: 0.75rem 1rem; color: #57534e; }
+.dark .prose-content td { color: #a1a1aa; }
+.prose-content del { color: #a8a29e; text-decoration: line-through; }
+.dark .prose-content del { color: #52525b; }
+.prose-content mark { background: #fef08a; color: #1c1917; padding: 0.1em 0.35em; border-radius: 0.2em; }
+.dark .prose-content mark { background: #854d0e; color: #fef08a; }
+.prose-content kbd { font-family: 'JetBrains Mono', monospace; font-size: 0.8em; background: #f5f5f4; color: #44403c; border: 1px solid #d6d3d1; border-bottom-width: 2px; border-radius: 0.3rem; padding: 0.1em 0.45em; box-shadow: 0 1px 0 #d6d3d1; }
+.dark .prose-content kbd { background: #27272a; color: #d4d4d8; border-color: #3f3f46; border-bottom-color: #52525b; box-shadow: 0 1px 0 #3f3f46; }
+.prose-content dl { margin: 1.25rem 0; }
+.prose-content dt { font-weight: 600; color: #1c1917; margin-top: 0.75rem; }
+.dark .prose-content dt { color: #e4e4e7; }
+.prose-content dd { padding-left: 1.25rem; margin-top: 0.25rem; border-left: 2px solid #e7e5e4; }
+.dark .prose-content dd { border-left-color: #27272a; }
+.prose-content input[type="checkbox"] { margin-right: 0.5rem; accent-color: #d97706; vertical-align: middle; transform: scale(1.15); }
+.dark .prose-content input[type="checkbox"] { accent-color: #f59e0b; }
+.prose-content li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.25rem; }
+.prose-content li:has(> input[type="checkbox"])::before { display: none; }
+.prose-content > :first-child { margin-top: 0; }
+.prose-content > :last-child { margin-bottom: 0; }
+
+/* 代码块外 */
+code:not([class*="language-"]):not(.prose-content code) { font-family: 'JetBrains Mono', monospace; font-size: 0.875em; background: #fef3c7; color: #92400e; padding: 0.125rem 0.375rem; border-radius: 0.25rem; }
+.dark code:not([class*="language-"]):not(.prose-content code) { background: #3f3f46; color: #fbbf24; }
+
+.toc-drawer { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
+.toc-drawer.open { max-height: 15rem; overflow-y: auto; }
+
+/* ==========================================================================
+ * 交互状态样式（对应 TimelyBlogTheme.js）
+ * 这些规则刻意不放进 @layer —— 未分层样式优先级高于 Tailwind 的 @layer utilities，
+ * 因此能覆盖组件上的 text-* / bg-* 工具类。颜色统一写成 var(--color-*, 回退值)，
+ * Tailwind 重新构建后即使某个变量不再产出，也有回退色可用。
+ * ========================================================================== */
+
+/* 深色背景层：由 html.dark 控制，不依赖 JS（避免首屏闪一下浅色背景） */
+#dark-bg { display: none; }
+.dark #dark-bg { display: block; }
+
+/* 主题切换按钮的日 / 月图标（FontAwesome 会给 <i> 设 display，这里用 !important 压过它） */
+#theme-toggle .i-sun { display: none !important; }
+#theme-toggle .i-moon { display: inline-block !important; }
+.dark #theme-toggle .i-sun { display: inline-block !important; }
+.dark #theme-toggle .i-moon { display: none !important; }
+
+/* 顶部导航高亮（body[data-view] + aria-current 驱动，桌面导航与移动底栏不同色） */
+.site-nav a[aria-current="page"],
+.site-nav button[aria-current="page"] { color: var(--color-stone-800, #292524); background-color: var(--color-stone-100, #f5f5f4); }
+.dark .site-nav a[aria-current="page"],
+.dark .site-nav button[aria-current="page"] { color: var(--color-zinc-100, #f4f4f5); background-color: var(--color-zinc-800, #27272a); }
+.site-tabbar a[aria-current="page"] { color: var(--color-amber-600, #d97706); }
+.dark .site-tabbar a[aria-current="page"] { color: var(--color-accent, #d97706); }
+
+/* 侧边栏标签：当前标签高亮 */
+.side-tags a[aria-current="page"] { background-color: var(--color-amber-100, #fef3c7); color: var(--color-amber-700, #b45309); }
+.dark .side-tags a[aria-current="page"] { background-color: color-mix(in oklab, var(--color-accent, #d97706) 10%, transparent); color: var(--color-accent, #d97706); }
+
+/* 目录滚动高亮 */
+.toc-link[aria-current="true"] { color: var(--color-amber-600, #d97706); font-weight: 500; }
+.dark .toc-link[aria-current="true"] { color: var(--color-accent, #d97706); }
+
+/* 折叠箭头：由 aria-expanded 驱动，不依赖 Tailwind 的 rotate-* 工具类 */
+[data-toggle][aria-expanded="true"] .i-chevron-180 { transform: rotate(180deg); }
+[data-toggle][aria-expanded="true"] .i-chevron-90 { transform: rotate(90deg); }
+
+/* 回到顶部：默认隐藏，滚动超过 300px 后加 .is-visible */
+#back-to-top { opacity: 0; pointer-events: none; transition: opacity 0.2s ease; }
+#back-to-top.is-visible { opacity: 1; pointer-events: auto; }
+
+/* 弹层：本身是 flex 容器，hidden 属性时强制隐藏 */
+#search-modal { display: flex; }
+#lightbox { display: flex; align-items: center; justify-content: center; }
+#search-modal[hidden], #lightbox[hidden] { display: none; }
+
+/* 搜索结果选中项 */
+#search-results a[aria-selected="true"] { background-color: var(--color-stone-100, #f5f5f4); }
+.dark #search-results a[aria-selected="true"] { background-color: var(--color-zinc-800, #27272a); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ==========================================================================
+ * 代码高亮（highlight.js）适配
+ * --------------------------------------------------------------------------
+ * hljs 的主题 CSS（github / github-dark）只负责 token 上色，不带容器背景。
+ * 这里补上容器底色，并让 .hljs 也命中原来写死 language-* 的尺寸规则
+ * （因为 highlight() 之后 class 会同时带 hljs / language-xxx / data-lang）。
+ * 手写样式统一放文件末尾 banner 段内：Tailwind 重建会覆盖前面的部分。
+ * ========================================================================== */
+pre code.hljs { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; line-height: 1.7; }
+pre:has(> code.hljs) { margin: 0; padding: 0; border-radius: 0 0 0.75rem 0.75rem; max-height: 24rem; overflow-y: auto; }
+/* 容器底色（与 .code-header 配套：浅色 stone-50 / 暗色 zinc-900） */
+.code-block pre { background-color: #fafaf9; }
+.dark .code-block pre { background-color: #18181b; }
+/* hljs 的行内代码不应被误当成代码块 */
+.prose-content code.hljs:not(pre code) { padding: 0; background: none; border: 0; }
+/* 代码块内的等宽留白：hljs 会把换行也包进 span，避免行高塌陷 */
+.code-block pre code.hljs { display: block; white-space: pre; tab-size: 2; }
+
+/* ==========================================================================
+ * 文章图标（#iconClass / Boxicons）
+ * --------------------------------------------------------------------------
+ * 数据源：Trilium 笔记的「设置图标」→ #iconClass（如 "bx bxs-shower"）。
+ * 分享页默认只在左侧树渲染它；这里把它搬到首页卡片与详情页标题上。
+ * 字体由 Trilium 的 iconPackCss 注入（@font-face 指向 boxicons.woff2），
+ * 本段只负责尺寸、颜色、对齐 —— 与标题文字同色系但用琥珀色做视觉锚点。
+ * ========================================================================== */
+.post-icon {
+  display: inline-block;
+  margin-right: 0.5rem;
+  font-size: 1.05em;
+  line-height: 1;
+  vertical-align: -0.12em;   /* 与标题基线对齐 */
+  color: var(--color-amber-600, #d97706);
+  flex: none;
+}
+.dark .post-icon { color: var(--color-accent, #fbbf24); }
+/* 详情页标题更大，图标同比放大 */
+#post-content + * .post-icon,
+article h1 .post-icon { font-size: 1em; }
+
+/* ==========================================================================
+ * 侧边栏：完全固定（position: fixed）
+ * --------------------------------------------------------------------------
+ * 需求（用户）：「我要的是完全不动，不是滚动后离上方 16px 后停止；
+ *               既然高度都不需要滚动，那么右侧这一块可以完全固定」。
+ *
+ * 为什么不能用 sticky：sticky 的语义就是「留在文档流里、随滚动走一段、
+ * 到阈值才吸住」。页面主体有 py-10（2.5rem）的上内边距，aside 初始位置
+ * 会被这个 padding 往下推，所以滚起来必然有「先动一下再停」的过程 ——
+ * 这是 sticky 的固有行为，调 top 值改不掉。要做到一次都不动，
+ * 只能脱离文档流：position: fixed。
+ *
+ * ⚠️ fixed 的代价：脱离文档流后不再自动对齐 grid 的列位置，得自己算水平偏移。
+ *   公式（已在 1024 / 1200 / 1279 / 1280 / 1600 / 1920 / 2560 七个宽度逐一验算，
+ *   与 grid 布局逐像素一致）：
+ *
+ *     left = 容器居中偏移 + 容器内容宽 − 卡片宽(340px)
+ *          = max(0, (100vw − 98rem)/2)           ← mx-auto 居中偏移
+ *            + min(100vw, 98rem) − 2×内边距       ← 容器内容宽
+ *            − 340px                              ← 减去卡片自身宽度
+ *
+ *   化简后：left = 容器居中偏移 + 容器内容区右边缘 − 340px
+ *   妙处：结果与 grid 的 gap 无关（gap 只影响左列宽度，不影响右列位置），
+ *        所以改 gap 不用动这里。
+ *
+ * ⚠️ 垂直方向 top 的推导（fixed 后必须把「原本由文档流提供」的上边距补回来）：
+ *
+ *     原来（sticky / 静态，aside 在文档流里）：
+ *       aside 上沿 = header 3.5rem(56px) + 容器 py-10 的 padding-top 2.5rem(40px) = 6rem(96px)
+ *                   ↑ header 是 sticky 占位；↑ 主体容器 <div ... py-10 ...> 的上内边距
+ *
+ *     改成 fixed 后 aside 脱离文档流 → 那 2.5rem 的 padding-top **不会**再推它，
+ *     所以必须显式补进 top，否则会「凭空上移 24px」（踩过：写成 4.5rem 导致偏上）。
+ *
+ *     top = header 3.5rem + py-10 2.5rem = 6rem (96px)
+ *     ⚠️ **只有这两项，不要加"呼吸间距"**：96px 已经含 header 到卡片的 40px 净间距。
+ *        曾写成 7rem(112px) 多加 16px → 用户报「比初始高度矮了大概 16px」。
+ *
+ * ⚠️ 依赖的上游值（改任一处，下面 top / left 公式要同步改；smoke L 段有守卫）：
+ *     · 容器 max-width  98rem (1568px)    ← EJS: max-w-[98rem]
+ *       （收窄自 100rem：原值在 1600px 视口贴满，右侧被侧栏占掉 318px 显得不居中）
+ *     · 容器内边距      sm:2rem / xl:2.5rem ← EJS: px-5 sm:px-8 xl:px-10
+ *     · 容器竖向内边距  py-10 = 2.5rem     ← EJS: 主体容器的 py-10
+ *     · 两列断点        lg = 64rem (1024px) ← aside 是 hidden lg:block
+ *     · 卡片宽度        340px             ← EJS: w-[340px]
+ *     · header 高度     3.5rem (56px)     ← EJS: h-14
+ *
+ * ⚠️ 高度上限同步按新 top 推导：
+ *     max-height = 100vh − top(6rem) − 底部留白(1.5rem)
+ *
+ * ⚠️ fixed 元素不参与 grid 布局 → aside 不能再有 self-start（已移除）。
+ *   祖先链上没有 transform/filter/perspective/contain（已核查），
+ *   所以 fixed 的包含块就是视口。
+ *
+ * 说明：只在 lg 断点生效（aside 本身是 hidden lg:block，移动端不参与布局）。
+ * ========================================================================== */
+/* --------------------------------------------------------------------------
+ * 布局联动值（单一事实来源）
+ * --------------------------------------------------------------------------
+ * 改布局只需要动这里的 3 个变量，left / max-height 公式会自动跟随。
+ * ⚠️ 这些值同时出现在 EJS 的 class 里（容器 max-w-[...] / 侧栏 w-[...] / py-10 / h-14），
+ *    EJS 那份改完，这里必须同步 —— smoke L 段有守卫断言两者一致。
+ * -------------------------------------------------------------------------- */
+:root {
+  --layout-container: 98rem;   /* 容器总宽 ← EJS: max-w-[98rem] */
+  --layout-aside: 340px;       /* 侧栏宽   ← EJS: w-[340px] / grid-cols-[1fr_340px] */
+  --layout-top: 6rem;          /* 侧栏顶边 ← header 3.5rem(56px) + 容器 py-10 2.5rem(40px) = 96px */
+}
+
+@media (min-width: 64rem) {
+  aside.aside-fixed {
+    position: fixed;
+
+    /* 顶边：= header h-14(3.5rem) + 容器 py-10(2.5rem)。
+       ⚠️ 不要额外加"呼吸间距"：aside 顶边本来就该等于容器内容区顶边，96px 里已含两者净间距。
+          曾写成 7rem(112px) 多加了 16px → 用户报「比初始高度矮了大概 16px」。 */
+    top: var(--layout-top);
+
+    /* 水平：对齐 grid 右列。内边距按断点分段（sm:2rem → xl:2.5rem） */
+    --aside-pad: 2rem;
+    --aside-inner: calc(min(100vw, var(--layout-container)) - 2 * var(--aside-pad));
+    left: calc(max(0px, (100vw - var(--layout-container)) / 2) + var(--aside-inner) - var(--layout-aside));
+
+    /* 高度：不滚动 —— 用视口高减去上下留白；真的超出时才内部滚兜底 */
+    max-height: calc(100vh - var(--layout-top) - 1.5rem);
+    overflow-y: auto;
+
+    /* 层级：低于 header(z-50)，高于正文 */
+    z-index: 20;
+  }
+
+  @media (min-width: 80rem) {
+    aside.aside-fixed { --aside-pad: 2.5rem; }   /* xl:px-10 */
+  }
+
+  /* 滚动条细样式（兜底用：内容真的超出时别出现一条粗黑边）
+     —— Firefox + WebKit 两套写法 */
+  aside.aside-fixed {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-stone-300, #d6d3d1) transparent;
+  }
+  .dark aside.aside-fixed { scrollbar-color: var(--color-zinc-700, #3f3f46) transparent; }
+  aside.aside-fixed::-webkit-scrollbar { width: 6px; }
+  aside.aside-fixed::-webkit-scrollbar-track { background: transparent; }
+  aside.aside-fixed::-webkit-scrollbar-thumb {
+    background-color: var(--color-stone-300, #d6d3d1);
+    border-radius: 3px;
+  }
+  .dark aside.aside-fixed::-webkit-scrollbar-thumb {
+    background-color: var(--color-zinc-700, #3f3f46);
+  }
+}

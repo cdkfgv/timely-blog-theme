@@ -1,0 +1,14 @@
+{
+  "name": "timely-blog-theme",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Trilium Notes 分享主题（Tailwind v4 构建）",
+  "scripts": {
+    "build": "tailwindcss -i ./src/input.css -o ./TimelyBlogTheme.css --minify",
+    "dev": "tailwindcss -i ./src/input.css -o ./TimelyBlogTheme.css --watch --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.2.2",
+    "tailwindcss": "^4.2.2"
+  }
+}

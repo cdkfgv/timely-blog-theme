@@ -1,0 +1,752 @@
+# TimelyBlogTheme 重构计划清单
+
+> 汇总自代码审查 + Trilium 官方文档核对 + share-tool 实测复现。  
+> 验证环境：`D:/share-tool`（`ETAPI_MOCK=1` 假数据 / 填 `.env` 后用真实库），存盘即热重载。  
+> 每阶段独立可验证，做完一项勾一项，**不跨阶段混改**。
+
+## 工作流约定（两条硬规则）
+
+1. **三阶段流程（用户决策，EJS 里两套写法并存）**：
+   | 阶段           | EJS 生效写法                                                                       | share-tool                                                   |
+   | ------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+   | ① **开发**（当前） | `note.getRelations("shareCss"/"shareJs")` → `api/notes/<id>/download`；CDN 注释保留 | `ASSET_MODE=local`（默认）→ 重写成本地 `TimelyBlogTheme.css/.js`，存盘即见 |
+   | ② **预览**     | **不动**（CSS/JS 已上传进 Trilium）                                                    | `ASSET_MODE=as-is` → 保持原样，验证 Trilium 托管的文件渲染是否正常             |
+   | ③ **上线**     | 注释掉两段 shareCss/shareJs 循环，启用 CDN `<link>`/`<script>`                           | 同上；想本地看效果再切回 `local`                                         |
+   - 原因：`shareCss`/`shareJs` 方式**访问需要登录**，不适合外网；外网一律走 CDN
+   - `~shareCss` / `~shareJs` 关系**必须勾「可继承」**，否则子页面取不到
+2. **不主动 push**：我不执行 `npm run push` / 任何 ETAPI 写操作，也不碰 GitHub。本地验证通过后由**你手动**推送。我只做「改代码 + 本地渲染验证 + 报告结果」。
+
+---
+
+## 阶段 0 · 环境（已完成）
+
+- [x] 建 `D:/share-tool`：本地模拟 Trilium 分享渲染，ETAPI 取真实数据 + 主题热重载
+- [x] `git init` + 首个提交 `7f3e411`
+- [x] 假数据端到端验证：首页/详情/固定页 200，草稿排除，链接/附件/图片改写正确，附件代理 MIME 正确，目录穿越被挡，SSE 触达
+- [x] 复现 `</script>` 注入故障（mock 用例 `post0000005`）
+- [x] 填 `.env` 三项（`TRILIUM_URL` / `ETAPI_TOKEN` / `ROOT_NOTE_ID`）并把 `ETAPI_MOCK` 改 `0`，跑通真实数据
+  - 实测（2026-09-30）：真实库 `https://note.yihwang.top` / 根笔记 `p3wjHYobxcWH`，`npm run smoke` **43 项全通过**
+
+---
+
+## 阶段 1 · 安全修（不动架构，最小 diff）✅ 已完成（2026-09-30）
+
+> 目标：消掉会导致页面挂掉 / 明显错乱的硬伤。改完本地验证通过后，**由你手动** push。  
+> 验证：`cd D:/share-tool && ETAPI_MOCK=1 npm run smoke` → **25 项全通过**。
+
+- [x] **1.1 `</script>` 注入（P0）** — EJS 里新增 `safeJson()`，把 JSON 串里的 `< > & U+2028 U+2029` 转成 `\u00XX` 转义，`site` / `blogger` / `posts` / `postDetail` / `content` / `noteTitle` / `fixedPages` / `isFixed` 全部改走它
+  - 回归用例 `post0000005`：BLOG_DATA 块完整（不再被提前闭合）、块后紧跟 `<head>`（无 JSON 文本泄漏）、还原后仍是真实 `</script>` 文本
+- [x] **1.2 首页标题重复 + tag/category 标题缺失** — 删掉 `watch(titles)`，改为 `updateRoute()` 末尾调用 `updateTitle()`；首页不再拼两次站点名，`tag` / `category` / `notfound` 纳入映射（`标签：X - 站点` / `分类：X - 站点`）；`G.isPostPage` 时直接返回，避免覆盖服务端渲染的文章标题
+- [x] **1.3 拼写错误** — `fiexdPages` → `fixedPages`、`isFiexdPage` → `isFixedPage`（EJS 定义 + 调用 + `BLOG_DATA` 字段名；JS 里未使用的 `fiexdPages` computed 已删）
+- [x] **1.4 初始锚点滚动打架** — 新增 `isAnchorHash()`：标题锚点（`#heading-x`）**不参与路由、不回顶部、不触发 hashchange 重渲染**；路由 hash 才 `scrollTo(0)`。判定收进 `updateRoute()` 内部，任何调用方都安全
+
+顺手修的（share-tool，非主题问题）：
+
+- `ETAPI_MOCK=1` 时不再读 `.env` 里的真实 `ROOT_NOTE_ID`（否则预取失败、首页空、子页全 404）
+- 新增 `npm run smoke`：主题回归断言（转义 / 标题 / 路由锚点 / 拼写 / 静态资源）
+
+## 阶段 2 · 样式出 EJS + CDN 策略优化
+
+> 目标：EJS 只留数据 + 结构。  
+> **资源引用三阶段（用户决策）**：见顶部「三阶段流程」。EJS 里同时保留两套写法 —— 开发/预览期用 `note.getRelations("shareCss"/"shareJs")` → `api/notes/<id>/download`，上线形态（CDN）以注释保留在旁。代码里**不做任何自动回退 / 环境判断**。
+
+- [x] ~~2.2 资源改 `~shareCss` / `~shareJs`~~ — 原「淘汰 CDN、全量内迁」方案撤销；现改为**双形态并存**（见上方决策）
+- [x] **2.1 手写样式出 EJS → CSS 末尾** — 113 行内联 `<style>`（`::selection`、滚动条、`.code-block`、`.prose-content` 全段、`.toc-drawer`、`prefers-reduced-motion`）迁到 `TimelyBlogTheme.css` 末尾，带醒目 banner 标注「非 Tailwind 产物，重构建后需贴回」。EJS 47,497 → 38,357 字节（**每页少下发 9.1KB**），渲染结果里已无 `<style>`
+  - 用户决策：单文件（不拆第二个 CSS），接受重构建需贴回的人工成本
+- [x] **2.2a 缓存策略** — 用户决策：**保持 `@main`**，不加版本 tag/SHA（避免每次发布多一步改 EJS）；若日后出现明显缓存滞后再切 tag
+- [x] ~~**2.2b CDN 兜底（onerror 自动回退）**~~ — **撤销，不做**（用户决策）
+  - 理由：CSS/JS 上传 GitHub、切 CDN 是**人工发布步骤**，代码里不写任何自动判断/回退
+  - 已移除：EJS 里的 `cssFallback`/`jsFallback`（读 `~shareCss`/`~shareJs` 生成 `onerror`）、CSS `onerror` 属性、JS `onerror` 动态注入
+  - 备注：主题 JS 启动仍用 `readyState` 判断（与回退无关）
+- [x] **2.2d 开发期引用 Trilium 托管资源**（新增，替代 2.2b 的实际需求）
+  - EJS head 加用户提供的两段循环：`shareCss` → `<link href="api/notes/<id>/download" rel="stylesheet">`、`shareJs` → `<script type="module" src="api/notes/<id>/download">`
+  - CDN 地址**以注释保留**在旁（上线时与上面互换角色）
+  - share-tool 同步支持：`ASSET_MODE=local` 重写成本地文件 / `as-is` 保持原样（对应阶段②预览、③上线）
+  - 修复 share-tool 数据层 bug：**relation 的继承此前完全没实现**（只继承了 label），导致挂在根笔记的 `~shareCss` 在子页面取不到
+  - `type="module"` 影响已静态核查：主题 JS 无顶层 `this`、无隐式全局、无严格模式禁用语法
+- [x] **2.2c 预连接** — 三个源都加了 `<link rel="preconnect" crossorigin>`（jsdmirror / cdnjs / unpkg）
+- [ ] **2.3 依赖收敛** — 用户决策：图标换**内联 SVG**（需先确认线框稿）
+  - [x] 线框稿：`mockups/icons-mockup.html`（24 个图标逐一对照，左列真实 FontAwesome，含明暗切换、34px 放大对比、场景预演）→ **待你确认**
+  - [ ] 按确认结果改 EJS：`<svg><symbol>` 精灵块 + `class="i i-16"`，删 FontAwesome `all.min.css`
+  - [x] ~~Prism 语言包按需收敛~~ → **已整体换掉**，见阶段 6
+
+---
+
+## 阶段 3 · 去 Vue 改 SSR（最大一刀）✅ 已完成（2026-09-30）
+
+> 目标：`Trilium 渲染空壳 → Vue 客户端重画` 改成 `Trilium 直接吐内容，JS 只做交互`。  
+> 实测（mock 4 篇文章）：
+>
+> | 指标                                                                                                     | 前                              | 后                                               |
+> | ------------------------------------------------------------------------------------------------------ | ------------------------------ | ----------------------------------------------- |
+> | 主题 JS                                                                                                  | 676 行 / 24.4KB（Vue 应用）         | 478 行 / 18.6KB（原生脚本，**有效行 553 → 397**）          |
+> | 文章页 HTML                                                                                               | 37.5KB                         | **23.8KB（−36%）**                                |
+> | 首页 HTML                                                                                                | 36.4KB                         | 39.9KB（+9.5%，因为归档/标签/404 也变成真实标记，换来 hash 切换零渲染） |
+> | 首次渲染依赖                                                                                                 | `vue.global.js` 500KB+ 下载后才出内容 | 无（HTML 到达即内容；**爬虫也能读到正文**）                      |
+> | 验证：`npm run smoke` **38 项**（服务端渲染结果）+ `npm run dom` **46 项**（jsdom 真实行为），`local` / `as-is` 两种资源模式均全通过。 |                                |                                                 |
+
+- [x] **3.1 列表/标签/归档/分类页改 EJS 循环输出** — 首页卡片、归档（年→月→日）、标签总览全部服务端渲染；  
+  标签/分类的**文章列表改为克隆首页卡片**（`data-post-id` / `data-category` / `data-tags`），不再额外下发一份 HTML
+- [x] **3.2 详情页 `<%- content %>`** — 正文由 Trilium 渲染好直接输出（`#post-content`）
+- [x] **3.3 卡片复用** — 卡片标记在模板里只出现一次（首页循环），标签/分类页复用同一份 DOM，无需 partial
+- [x] **3.4 原生 JS 接管交互（实测 478 行，有效行 397）**
+  | 功能                     | 实现                                                                                    |
+  | ---------------------- | ------------------------------------------------------------------------------------- |
+  | 明/暗切换                  | JS 只管翻转 `html.dark` + 落盘；图标切换与深色背景层改由 CSS(`.dark`) 驱动，零 JS                            |
+  | 折叠面板（标签/目录/目录分组/移动端目录） | 统一 `[data-toggle="id"]` + `hidden` + `aria-expanded`，箭头旋转交给 CSS                       |
+  | 标签/归档/分类筛选             | hash 路由切换 `<section data-view-panel>` 显隐 + 克隆卡片                                       |
+  | 搜索弹窗                   | 索引从 `<script type="application/json">` 读，结果用 DOM API 构造（`textContent`，无 innerHTML 拼接） |
+  | 代码块复制、灯箱、外链、目录高亮       | 原生 DOM，逻辑沿用；无 clipboard API 时退回 `execCommand`                                         |
+  | 阅读进度、回到顶部              | 合并为一个 rAF 节流的 scroll 监听                                                               |
+  | 导航高亮                   | `aria-current="page"` + `body[data-view]`，样式在 CSS 里用颜色变量实现                            |
+- [x] **3.5 TOC 锚点挪服务端** — 模板内自实现 slug（中文保留），服务端给正文标题补 `id` 并建目录树
+  - ⚠️ **纠正**：Trilium 的模板 locals **没有 `utils`**，官方 `page.ejs` 也是自己内联 `slugify` —— 不能依赖 `utils.slugifyHeadings`
+  - ⚠️ **行为变化**：锚点由 `#heading-0`（序号）改为 `#问题`（标题文本），旧书签失效；同时 `#` 链接可读性、SEO 更好
+- [ ] **3.6 EJS 拆 partials** — **暂缓**：`include('name')` 需要模板笔记下挂 `application/x-ejs` 子笔记（Trilium 侧手工建），  
+  且 share-tool 还要补 `includer`。当前卡片已无重复标记，收益有限，留待需要时再做
+
+---
+
+## 阶段 4 · 收尾优化
+
+> 4.1 ~ 4.5 是「Vue 时代」的问题，阶段 3 去 Vue 时已顺带解决，保留记录。  
+> 4.6 ~ 4.9 已完成（2026-09-30）。验证：`npm run smoke` **58 项**（mock·local）/ **57 项**（mock·as-is）/ **43 项**（真实库），  
+> `npm run dom` **46 项**，`npm run script-test` **24 项**，全通过。
+
+- [x] **4.1 派生数据只算一次** — 聚合改为模板里算一次（`tagCount` / `catCount` / `archive`），导航、侧边栏、标签页、归档页共用
+- [x] **4.2 全局状态统一** — `G` 全局对象（ref/reactive 混用）整体删除；状态落在 DOM（`hidden` / `aria-expanded` / `aria-current` / `body[data-view]`）
+- [x] **4.3 归档去重 O(n²) → Set**；~~`collect()` 统一用 `getVisibleChildNotes`（原实现子节点用 `getChildNotes`，会带出隐藏笔记）~~
+  - 🔴 **该条已被阶段 5 推翻并回退**：改回 `getChildNotes()`，见下方 5.1
+- [x] **4.4 删首页骨架屏假延迟** — SSR 后首屏即内容，`setTimeout(300)` 与骨架屏标记一并删除
+- [x] **4.5 observer / listener 生命周期** — 不再有「路由切换销毁重建组件」的场景（页面级渲染），IntersectionObserver 只在一页内创建一次；scroll 监听已合并为单个 rAF 节流
+- [x] **4.6 补 OG / Twitter meta** — 按 Trilium 官方属性实现，模板侧自己算（默认 `page.ejs` 的特征不继承）：
+  | 属性                                              | 输出                                                                                                                                     |
+  | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+  | `#shareDescription`                             | `<meta name="description">` + `og:description` + `twitter:description`（无则：文章页用 `#blogSummary`，列表页用 `#siteDescription`）                 |
+  | `#shareOpenGraphURL`                            | `og:url` + `twitter:url`                                                                                                               |
+  | `#shareOpenGraphDomain`                         | `twitter:domain`                                                                                                                       |
+  | `#shareOpenGraphImage` / `~shareOpenGraphImage` | `og:image` + `twitter:image`；label 值原样用，relation 指向 File 笔记 → `api/notes/<id>/download`；都为空时回退文章 `#headerImage`                        |
+  | `#shareOpenGraphColor`                          | `theme-color`                                                                                                                          |
+  | `#shareDisallowRobotIndexing`                   | `<meta name="robots" content="noindex, follow">`（只有该笔记有）                                                                               |
+  | 新增 `#siteUrl`                                   | `og:image` / `og:url` 的相对地址按它补成绝对地址（OG 要求绝对 URL），未设则原样输出                                                                               |
+  | 其余                                              | `og:site_name` / `og:title` / `og:type`（文章 article、列表 website）/ `twitter:card`（有图 `summary_large_image`，无图 `summary`）/ `twitter:title` |
+- [x] **4.7 `#shareHiddenFromTree`** — 清单已写进 EJS 顶部（EJS 注释，不进页面字节）：模板 / CSS / JS / favicon 四份笔记都挂上。**Trilium 侧需你手动加标签**
+- [x] **4.8 `~shareFavicon` 关系** — 指向 File 笔记 → `api/notes/<id>/download`；优先级 `#shareFavicon`（完整 URL）> `~shareFavicon` 关系 > 内置 emoji data-URI；需勾「可继承」才能在各子页面生效
+- [x] **4.9 `templateScript.js` 修三处** — 重写：
+  - 摘要先剥 `<script|style|pre|code|figure|table|svg>` 整块 + 块级标签转空格，代码不再污染前 120 字
+  - 空白归一改语言感知：`([中文])[\s]+([中文])` → 直接吃掉，其余压成单空格（英文不再被连成一坨）
+  - `note.save()` 挪进 `publish === 'true'` 分支；`blogDate` 判空再写；摘要按需加省略号（≤120 字不加）
+  - 顺带：`&nbsp;` 与常见实体还原、剥离顺序修正
+  - 新增 `npm run script-test`（24 项）：用 `new Function('api', src)` + 打桩 note 复刻 Trilium 脚本环境
+- [x] **4.6' 双重转义 BUG（新发现，P1）** — 全量 `<%= esc(x) %>` 会被 EJS 再转义一次（`&` → `&amp;`），  
+  标题/描述含 `&`、`<`、`'` 时页面出现 `&amp;amp;` / `&amp;#39;`，favicon data-URI 直接变 `&amp;lt;svg` 而失效。  
+  修法：所有 `<%= esc(...) %>` / `<%= enc(...) %>` → `<%- esc(...) %>` / `<%- enc(...) %>`（共 40+ 处）。  
+  smoke 加双重转义守卫 + mock 里塞入含 `& < >` 的站点简介与文章标题做正向断言。
+- [ ] **4.10 目录结构（可选，B 方案）** — `TimelyBlogTheme/src/` 放三个主题文件，`文章模版.html` / `templateScript.js` 留根；代价是 `.env` 加 `EJS_FILE=src/...` 等两行
+- [ ] **4.11 主题 JS 是 `type="module"` 但内容为传统写法** — 阶段③ 切 CDN 时 `<script src>` 不带 module，两者都能跑（已用 `readyState` 判断）；若保留 module，注意 Trilium 侧 JS 笔记 MIME 必须为 `text/javascript`
+
+---
+
+## 阶段 5 · 真实数据联调修复（2026-09-30 下午）
+
+> 背景：`share-tool` 第一次连**真实库**（`note.yihwang.top` / 根 `p3wjHYobxcWH`）跑，暴露出 3 个只有真实数据才会踩到的问题。  
+> 之前几轮的「实测数据」其实跑的是 mock（当时 4321 实例是 `ETAPI_MOCK=1` 起的），所以没暴露。
+
+- [x] **5.1 🔴 首页列表空了（P0，阶段 4.3 引入的回归）**
+  - 现象：真实库首页 `共 0 篇文章`，一篇都列不出来
+  - 根因：`collect()` 递归用了 `getVisibleChildNotes()`，而 `#shareHiddenFromTree` 的语义只是  
+    **「不出现在分享树的左侧导航」**，不等于「不是文章」。你博客里 5 篇文章都带这个标签 → 全被过滤
+  - 佐证：旧版（线上 Vue 版）递归用的就是 `getChildNotes()`，只有根节点用 `getVisibleChildNotes()`；线上 `/share/rWETtjGJtS3W` 返回 200 说明这些笔记确实已共享
+  - 修法：递归与根都改回 `getChildNotes()`。文章唯一判据是 `#publish=true`；真实 Trilium 的 shaca 只装已共享笔记，  
+    所以 `getChildNotes()` 就等于分享子树，模板/CSS 副本等没有 `#publish` 的笔记自然被过滤
+  - 回归：smoke 加「隐藏于树的已发布文章仍在列表里」+「源码里必须用 `rootNote.getChildNotes()`」  
+    （mock 里把 `post0000003` 标上 `#shareHiddenFromTree`）
+- [x] **5.2 ETAPI 正文被自动 `JSON.parse`（P1，share-tool）**
+  - 现象：canvas 笔记的正文渲染成字符串 `[object Object]`
+  - 根因：`etapi.js` 的 `request()` 对所有响应无条件 `JSON.parse`。canvas（Excalidraw）笔记的正文本身就是合法 JSON  
+    （`{"type":"excalidraw",...}`）→ 被解析成对象 → `store.content` 里 `String(obj)` 得 `[object Object]`
+  - 修法：`request()` 加 `raw` 选项，`getNoteContent` 走 `{ raw: true }` 原样返回字符串  
+    （任何「内容本身是合法 JSON」的文本笔记同样中招，不只是 canvas）
+  - 回归：新增 `npm run unit`（`tools/unit-test.js`），用打桩 fetch 断言正文返回字符串、元数据接口仍解析对象
+- [x] **5.3 canvas（Excalidraw）笔记支持（share-tool）**
+  - 实测线上 Trilium 对 canvas 笔记的输出（不是下发场景 JSON，而是渲染成图片）：  
+    `<img src="api/images/<noteId>/<encodeURIComponent(title)>?<utcDateModified>">`
+  - share-tool 对齐该标记；`/api/images/:id/*` 路由已存在，本地返回一张占位 SVG  
+    （本地不模拟 Excalidraw 绘制，属已知差异）
+  - 现在真实库 `/share/rWETtjGJtS3W` 的输出与线上逐字节一致
+- [x] **5.4 顺手修 smoke 的两处假报**
+  - `F` 段「子页面」写死 `post0000001`：真实库没这篇 → 整段无意义失败；改为用 `POST_ID`，取不到 200 时明确跳过
+  - `G` 段「渲染结果里不再出现 fiexd」：真实库文章《基于 Trilium Note…》正文里本来就在讲 `fiexdPages` 这个笔误  
+    → 误报；改为 mock 专用，源码级断言保持无条件
+  - 新增 `I` 段：canvas 笔记专项（5 项）
+
+
+**真实库实测（`POST_ID=HvzRWi2r9bUh`，有 `<h2>` 的那篇）**
+
+| 检查 | 结果 |
+|---|---|
+| 首页文章列表 | **5 篇**（原 0 篇）：`网络拓扑图` / `常用软件推荐` / `公网安全访问内网 NAS` / `应用分享：TriliumNotes` / `基于 Trilium Note…` |
+| 标签 / 归档聚合 | 正常（Docker、NAS、Network、Self-Hosted、Trilium Notes、公网访问、内网穿透） |
+| canvas 文章 | `<img src="/share/api/images/rWETtjGJtS3W/%E7%BD%91%E7%BB%9C%E6%8B%93%E6%89%91%E5%9B%BE?2026-09-29 08:30:32.421Z">` —— 与线上一致 |
+| `shareAlias` | 根笔记的 `#siteName` 是「妙蛙妙蛙」，`关于` 走 `shareAlias=about` |
+
+**测试矩阵（全绿）**
+
+| 套件 | mock·local | mock·as-is | 真实库 |
+|---|---|---|---|
+| `npm run smoke` | **65** | **64** | **46**（需 `POST_ID=<真实文章 noteId>`） |
+| `npm run dom` | **46** | 46 | — |
+| `npm run unit` | **5** | — | — |
+| `npm run script-test` | **24** | — | — |
+
+---
+
+## 已确认「不是必须」/ 保持不改
+
+| 项 | 结论 |
+|---|---|
+| Vue 3 整套 SPA | 可去掉（见阶段 3） |
+| `vue.global.js`（带编译器版，500KB+） | 删；若一定要留框架，Alpine.js（~15KB）是这场景正解 |
+| Tailwind 预编译产物挂 CDN | **保持** — 这是 Trilium 无构建管线下的唯一正确姿势，且视觉已深度定制，换 Pico/Water.css 纯亏 |
+| `#shareOmitDefaultCss` | 已用上，fully custom 不需要默认样式 |
+| `templateScript.js` 整体思路 | **保持** — 属性变更脚本自动填摘要/日期，已是 Trilium 地道用法 |
+| Svelte / Solid | 不建议 — 需 Node 构建链，Trilium 没有 |
+| `~shareHtml` / `#shareHtmlLocation` | **不用** — 官方新特性（注入 head/body/content 片段），本主题已能改模板源码，多一层属性反而难维护 |
+| `~shareLogo` / `#shareLogoWidth/Height` / `#shareRootLink` | **不适用** — 这些只作用于**默认主题**左侧树的 logo；本模板自绘导航，用 `#bloggerAvatarUrl` 即可 |
+| `#shareCredentials` / `#shareIndex` / `#shareExternalLink` / `#shareRaw` | **不用** — 与本站形态无关（免登录公开博客 / 无分享索引页 / 无外链跳转 / 无 raw 输出） |
+
+---
+
+## share-tool 已知差异（非主题问题，按需处理）
+
+- ETAPI 读不到「共享开关」→ 本地拿不到真正的分享子树。**注意：主题的文章收集已不用 `#shareHiddenFromTree` 判定可见性**（见 5.1），
+  所以本地会遍历 ETAPI 能读到的整棵子树；若某篇「未共享但带 `#publish=true`」的笔记出现在本地列表里，属已知差异（线上不会）
+- canvas（Excalidraw）笔记：标记与线上一致（`<img src="api/images/...">`），但本地返回占位 SVG，不模拟实际绘制
+- 未模拟：受保护笔记拦截、CKEditor 净化、i18n 文案、KaTeX
+- `npm run push` 无 dry-run 预览（可选加）
+
+---
+
+## 阶段 6 · 代码高亮换 highlight.js ✅ 已完成（2026-09-30）
+
+> 起因：用户问「现在用 Prism，有更好的推荐吗，bash / yaml 比较多」→ 做对比页 → 选中 highlight.js。
+
+### 6.1 先修根因：语言名对不上（这才是「正文零高亮」的原因）
+
+Trilium 输出的 `<code>` class 是 **MIME 形式**，实测 5 种形态，Prism 一个都不认：
+
+| Trilium 实际输出 | 语义 | 归一目标 |
+|---|---|---|
+| `language-text-x-sh` | bash | `bash` |
+| `language-text-x-yaml` | yaml | `yaml` |
+| `language-text-x-trilium-auto` | 自动识别 | `''` → 交给 `highlightAuto` |
+| `language-application-typescript` | ts | `typescript` |
+| `language-application-javascript-env-backend` | node/js | `javascript` |
+
+→ 主题 JS 新增 `LANGUAGE_MAP` + `normalizeLang()`；**换任何高亮器都躲不掉这一层**。
+
+### 6.2 换库
+
+- [x] 删 Prism：`prism.min.css` / `prism-tomorrow.min.css` + core + 5 个 `components/*.js`（共 8 个请求）
+- [x] 换 hljs：`highlight.min.js` 单文件（全语言）+ `github.min.css` / `github-dark.min.css` **明暗双主题**，由 `syncHljs()` 切 `disabled`
+- [x] `syncPrism()` → `syncHljs()`；`Prism.highlightElement()` → `hljs.highlight()/highlightAuto()`
+- [x] 代码块容器补底色（`.code-block pre` 浅 `#fafaf9` / 暗 `#18181b`），`.hljs` 命中原来只写 `language-*` 的尺寸规则
+- [x] 语言标签改读归一后的名字（不再显示 `text-x-sh` 这种原文）
+
+### 6.3 对比页（交付给用户目视选型）
+
+- `mockups/code-highlight-compare.html` — bash / yaml 各 4 栏并排（Prism tomorrow · hljs github-dark · Shiki 配色示意 · 现状无高亮）+ 体积/准确率表 + 建议
+- 结论：**换 hljs**（按需版 ≈35KB，bash/yaml/docker 内置，单文件接入）；**不用 Shiki**（wasm ≈700KB 或服务端预渲染，不适配 Trilium 自定义模板）
+
+### 6.4 测试
+
+- `smoke` 新增 **J 段**（13 项）：引用检查、双主题互斥、`normalizeLang` 存在性、**5 种 MIME 形态逐一归一断言**、SSR 不改写正文 class
+- `dom` 新增 **F 段**（14 项）：jsdom 注入 `hljs` 存根，验证 5 个代码块的真实归一路径 + CDN 挂掉时降级不抛异常
+- ⚠️ **踩坑**：`#post-content code` 会匹配到正文里的**行内 `<code>`**（5 个空 class），统计代码块必须用 `#post-content .code-block pre code`
+- ⚠️ `npm run dom` 依赖 mock 固定 fixture，连真实库时会直接报错退出（`config.mock` 判定），不再抛一堆 null 异常
+- mock 新增 `post0000007`「代码高亮语言标记对照」，覆盖全部 5 种形态；归类用「工具链」以免打乱既有分类页断言
+
+| 套件 | mock·local | mock·as-is | 真实库 |
+|---|---|---|---|
+| `smoke` | **84** | **83** | **60**（`POST_ID=tx5vjdhzMBf3`）|
+| `dom` | **63** | **63** | —（mock 专用）|
+| `unit` / `script-test` | **5** / **24** | — | — |
+
+---
+
+## 阶段 7 · 文章图标（`#iconClass`）渲染到网页 ✅
+
+### 7.1 问题
+
+用户在 Trilium 里给笔记设了图标（右侧属性面板的「图标」→ 写入 `#iconClass`，值为 Boxicons 类名如 `bx bxs-shower`），
+但分享页上看不到 —— 主题为了网页好看只能手工复制 emoji，结果 Trilium 里变成「图标 + emoji」两个。
+
+**根因**：Trilium 官方分享模板只在**左侧导航树**渲染 `note.getIcon()`（`tree_item.ejs` 唯一一处调用）；
+正文 `<h1 id="title">` 与首页卡片（主题自绘）都不读这个 label。
+
+### 7.2 关键事实（核对 TriliumNext/Trilium **v0.105.0** tag 源码）
+
+- 实例版本：`GET /etapi/app-info` → `appVersion: 0.105.0`（buildDate 2026-08-19）。源码仓库是 **`TriliumNext/Trilium`**（非 `TriliumNext/Notes`）。
+- v0.105.0 渲染入口在 `apps/server/src/share/content_renderer.ts` 的 `renderNoteContent()` / `RenderArgs`：
+  模板上下文**确实包含** `utils`、`cssToLoad`、`jsToLoad`、`isStatic`、`faviconUrl`、`logoUrl`、**`iconPackCss`**、**`iconPackSupportedPrefixes`**
+  （此前项目笔记里「没有 utils / cssToLoad / jsToLoad」的说法是**过时的**，已更正）。
+- `iconPackCss` **不是**「一套可挑的离线图标库」，而是「把笔记图标包的字体 + glyph 规则注入页面」的出口：
+  `iconPacks.map(p => generateCss(p, 字体URL)).join()`；内置包只有 **Boxicons v2，prefix `bx`**。
+- 字体 URL：内置包 → `assets/fonts/boxicons.woff2`（相对 `/share/`，**匿名可访问**，实测 200）；
+  自定义包 → `api/attachments/<id>/download`。
+- ⚠️ 自定义图标包有个硬门槛：`.filter(p => p.builtin || !!shaca.notes[p.manifestNoteId])` ——
+  **图标包笔记必须在分享子树内**，否则整包被静默剔除（无任何报错）。
+- `SNote.getIcon(filterByPrefix)`：读 `#iconClass` → 否则 `getNoteIcon()` 按类型兜底，返回 `tn-icon <class>`。
+
+### 7.3 方案（用户选 A：内联图标）
+
+- `mockups/icons-ab-mockup.html` — A（内联，图标与标题同行）/ B（胶囊徽章）双栏对比 + 对比表 + 建议 A。
+- **A 已定稿**；无 `#iconClass` 的笔记**回退为类型默认图标**（对齐 Trilium 桌面端）。
+
+### 7.4 实现
+
+- 主题 `TimelyBlogTheme.ejs`：
+  - 采集 `post.icon = node.getIcon()`；
+  - `isKnownIconClass(cls)` 放行判定（只接受已加载图标包前缀，避免自定义包渲染成空方块）；
+  - 首页卡片 `<h2>` 与详情页 `<h1>` 标题前插 `<i class="{icon} post-icon" aria-hidden="true">`；
+  - `<head>` 注入 `<style id="trilium-icon-packs"><%- iconPackCss %></style>`（Trilium 自己生成，不含用户输入）。
+- 主题 `TimelyBlogTheme.css`：`.post-icon` 尺寸 / 琥珀色（暗色 accent）/ 基线对齐，追加在末尾 banner 段。
+- 主题附 `boxicons.woff2`（115KB，本地调试用；线上由 Trilium 分发，不入 CDN 请求）。
+- share-tool：`ShareNote.getIcon()` + `_defaultIcon()`；`render.js` locals 补 `iconPackCss` / `iconPackSupportedPrefixes`；
+  `config.js` 加字体本地化重写 → `/share/theme/boxicons.woff2`。
+
+### 7.5 踩坑（P1 回归守卫）
+
+- ⚠️ 放行判定**不能**写成 `part.indexOf(p + '-') === 0`：Boxicons 的基础类就是 `bx` 本身（不是 `bx-xxx`），
+  这样写会把整串判否 → **页面上一个图标都没有**。正确写法：`part === p || part.indexOf(p) === 0`。smoke K 段有专项断言。
+
+### 7.6 踩坑二：图标显示为空白（P0，用户实测发现）
+
+**现象**：卡片/标题的 `<i class="bx bxs-shower post-icon">` 标签明明在，页面上却是**空白**。
+
+**根因**：`iconPackCss` 只写了 `@font-face` + `.bx` 基础规则，**漏了逐图标的 glyph 声明**：
+
+```css
+.bx.bxs-shower::before { content: "\ef45"; }   /* ← 缺这一段 */
+```
+
+字体文件里没有「`.bxs-shower` 这个类 ⇒ 对应码点」的映射，`<i>` 就渲染成空字符。
+**光有字体不够，CSS 里必须同时有「类名 → 码点」映射。**
+
+**修复**：
+
+- 从 boxicons 官方 CSS（`cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css`）正则提取，
+  生成 `boxicons-glyphs.json`（**1634 个图标**，格式 `{"bxs-shower": "\\ef45", ...}`）；
+  生成脚本：`tools/gen-boxicons-glyphs.py`。
+- share-tool `render.js` 的 `buildIconPackCss()` 复刻 Trilium 服务端 `icon_packs.generateCss()` 的完整结构：
+  `@font-face` + `.bx` + **逐图标 glyph 声明**。
+- ⚠️ **体积优化（本地特有）**：线上 Trilium 把全量 1634 条内联进**每一页**（≈45KB/页，首页 48KB → **126KB**）。
+  本地改为**按需输出**：`collectUsedGlyphs(store)` 遍历整棵子树所有笔记的 `getIcon()`，
+  只输出命中 glyph 表的类名 → 真实库 **9 条**、页面回到 **48.8KB**。
+  范围故意取「整棵子树」而非「本页可见」，避免「首页正常、详情页空白」随页面漂移。
+
+### 7.7 测试
+
+| 套件 | mock·local | mock·as-is | 真实库 |
+|---|---|---|---|
+| `smoke` | **97** | **96** | **71**（`POST_ID=HvzRWi2r9bUh`）|
+| `dom` | **63** | — | —（mock 专用）|
+| `unit` / `script-test` | **5** / **24** | — | — |
+
+- `smoke` 新增 **K 段**（10 项）：iconPackCss 注入、字体重写（按 `ASSET_MODE` 分支）、卡片/详情页图标、类型回退、放行判定回归。
+- 真实库实测：5 篇文章图标全部对上（`bxs-shower` / `bxs-coffee-bean` / `bxs-palette`，无图标的回退 `bx-note` / `bx-pen`）。
+- `dom` 此前记的 1 项既存失败（外链 `target=_blank`）本次复跑已消失 → **63 / 0**。
+- ⚠️ 库里改了 `render.js` 后**必须重启实例**（ES module 缓存），否则看到的还是旧 CSS。
+
+---
+
+## 阶段 8 · 侧边栏**完全固定**（`position: fixed` + 限高 + 内部滚动）✅
+
+> 本阶段反复了**四次**，最终方案是 **8.10**。四次记录都保留 ——
+> 因为它们各暴露了一个真实约束（header 遮挡 / 静态排布丢了「一直可见」/ sticky 必然「先滚一段」/ fixed 丢失文档流上边距），
+> 后来人做同类改动时值得顺着读一遍。
+>
+> **一句话结论**：要「一次都不动」只能用 `fixed`；`sticky` 结构上做不到。
+
+### 8.1 问题（用户报告）
+
+首页滚动时，右侧卡片吸顶后**上沿被顶部导航压住**。
+
+### 8.2 根因
+
+| 元素 | 定位 | 实际值 | 结论 |
+|---|---|---|---|
+| `header` 顶部导航 | `sticky top-0` + `h-14` | 占视口 **0~56px** | 遮挡源 |
+| `aside` 右侧卡片 | `sticky top-[2.5rem]` | 吸顶在 **40px** | 比 header 下沿**高 16px** → 被压 |
+
+那 16px 恰好是卡片头像 `w-14` 的高度，就是「太靠上」的直接观感来源。
+
+### 8.3 修复（第一版，已被 8.6 取代）
+
+- **吸顶位置**：`top-[2.5rem]`(40px) → **`top-[4.5rem]`**(72px) = `header 56px + 16px 呼吸间距`，
+  与页面主体 `py-10`、卡片间 `space-y-4` 的间距节奏一致。
+- **层级**：侧边栏加 `z-index: 20` —— 卡在「header（z-50）之下、正文之上」，
+  滚动时卡片应盖住左侧列表内容而非被穿透；同时高于归档年份标题的 `z-10`。
+
+### 8.4 ⚠️ 关键坑（跨阶段通用，仍然有效）：手写 CSS 必须显式声明工具类
+
+`.top-[4.5rem]` 与 `.z-20` **都不在 Tailwind 构建产物里**（构建时 EJS 写的还是 `top-[2.5rem]`，
+`z-20` 从未被扫到）。只改 EJS 的 class **不生效**；而重建 Tailwind 又会覆盖手写段。
+→ 当时的做法是把这两条写进 `TimelyBlogTheme.css` 末尾 banner 段。
+
+> 推广：**改任何 Tailwind 任意值类（`top-[...]` / `z-N`）前，先 grep 构建产物确认它已生成**；
+> 没有就写在 banner 段，别指望改个 class 名就自动有样式。
+
+### 8.6 中间方案：**取消 sticky**（一轮试错，已被 8.8 取代）
+
+用户反馈「右侧本来就不长，滚动一点没太大意义」→ 一度改为静态排布。
+但随后用户澄清真实诉求：**「右侧固定，不再滚动了」** —— 指的是
+「右侧固定在视口里、滚左侧时它一直在」，而不是「跟着页面一起滚走」。
+→ 见 8.8。
+
+（记录保留：这一轮的实现与断言虽被取代，但「`self-start` 必须保留」这条约束是这时候确认的。）
+
+### 8.7 测试（L 段的演进）
+
+`smoke` 的 **L 段**随方案四次调整断言方向，当前版对应 8.10（共 **25** 项）：
+
+| 版本 | 断言方向 |
+|---|---|
+| ① 对应 8.3 | 源码两侧对齐：读 header `h-N` 换算 rem + CSS 的吸顶 `top`，比大小 + 间隙 + z-index 区间 |
+| ② 对应 8.6 | 断言 `aside` **没有** `sticky` / `top-[*rem]` / `z-N`，且 `self-start` 仍在 |
+| ③ 对应 8.8 | `aside` 带自定义类 `aside-sticky`；CSS 三要素齐全（`position:sticky` + `max-height:calc()` + `overflow-y:auto`）；`max-height` 的减数与 `top` **必须同值** |
+| ④ **当前（8.10）** | `aside` 带 `aside-fixed`、**已移除 `self-start`**（fixed 不参与 grid）、**不再有 `sticky`**；规则含 `position:fixed` + `top` + `left` + `max-height` + `overflow-y` + `z-index`；**`top` ≥ header + 容器 `py-N`**（防丢 py-10）；`left` 公式必须引用容器的 `max-w-[Nrem]` 与侧栏宽 `270px`；内边距分段与 `sm:px-8` / `xl:px-10` 对应 |
+
+- **⚠️ 静态源码断言的两个坑（本次都踩到了）**：
+  1. **正则误匹配**：第一版用 `\bpy-(\d+)\b` 找容器内边距，结果匹配到页面更早的目录链接 **`py-1`** →
+     算出 `minTop = 3.5 + 0.25 = 3.75rem`，比实际的 4.5rem 小 → **bug 被漏过**。
+     修复：锚定主体容器 —— `/class="[^"]*\bflex-1\b[^"]*\bflex-col\b[^"]*max-w-\[\d+rem\][^"]*\bpy-(\d+)\b/`。
+  2. **注释误伤**：`left` 公式断言里写了 `|| new RegExp(...).test(ruleBody)` 兜底，
+     而 CSS **注释里**也有 `100rem` → 误通过。
+     修复：只取 `left:` 那条声明本体（`ruleBody.match(/\bleft:\s*([^;]+);/)`）再校验。
+
+- **守卫有效性逐条实测过**：
+  - 回退成 `top: 4.5rem` → 精确报「fixed 脱离文档流后丢掉了容器的 padding-top（2.5rem），
+    top 应 = 6rem…**实际 4.5rem → 会比原来偏上 24px**」。
+  - **改成 `top: 7rem`（多加了 16px"呼吸间距"）→ 精确报
+    「期望 top = 6rem（header 3.5rem + py 2.5rem），实际 7rem → **比原来偏低/偏下 16px（多加了间距，原来没有这一项）**」**。
+    这条是本阶段最有价值的一次修正（见 8.10 的 ⚠️）。
+  - 把 `left` 里的 `100rem` 改成 `96rem` → 报「left 公式未引用容器 max-width」。
+  - 在 8.6 版断言下加回 `sticky top-[4.5rem]` → 报「aside 仍带 top-[*rem]，说明还残留吸顶写法」。
+- **⚠️ 守卫的"等于" vs "≥" 教训**：第一版守卫写的是
+  `top ≥ header + 容器 py-N + 呼吸间距(≥8px)` —— 用的是 **`≥`**，
+  于是我"合理地"取了一个更大的值（7rem）它也不报错，**反向偏差（多加了间距）完全测不出来**。
+  正确写法是 `top === header + 容器 py-N`（**恰好相等**）：
+  因为改动前 aside 在文档流里，卡片顶边**就是**容器内容区顶边，这个值已经含净间距，
+  **不存在"再留一点呼吸"这一项**。→ **推导出来的"应该正好是多少"的断言，一律用 `===`，别用 `≥`。**
+- 可视化验证：`mockups/sidebar-sticky-mockup.html` —— 与主题同参数（header 56px / **`top: 6rem`(96px)** /
+  `left` 公式 / `max-height calc(100vh - 6rem - 1.5rem)`），左侧塞 8 张卡片制造滚动，可直接目视确认「一动不动」。
+
+
+| 套件 | mock·local | mock·as-is | 真实库 |
+|---|---|---|---|
+| `smoke` | **124** | **123** | **98**（`POST_ID=HvzRWi2r9bUh`）|
+| `dom` | **63** | — | —（mock 专用，指向真实库会主动拒绝）|
+| `unit` / `script-test` | **5** / **24** | — | — |
+
+（比上一版各少 1 项：删掉了「留有呼吸间距（≥8px）」那条 —— **它本身是错的**，
+它把我"多加 16px"的错误做法固化成了断言。）
+
+### 8.8 中间方案②：**sticky 吸顶 + 限高 + 内部滚动**（已被 8.10 取代）
+
+用户澄清：**「右侧固定，不再滚动了」** —— 要的是滚左侧时右侧**一直在原位**。
+
+- `aside` 加自定义类 `aside-sticky`（刻意不叫 `sticky`，避免与 Tailwind 工具类同名），`self-start` 保留。
+- CSS：`position: sticky; top: 4.5rem; max-height: calc(100vh - 4.5rem - 1.5rem); overflow-y: auto;`
+- **⚠️ 三个值必须成组推导**：`top` ≥ header（`h-14` = 3.5rem）；`max-height` 的**减数必须等于 `top`**（限高与吸顶同坐标系）；没有 `overflow-y` 长内容会溢出视口而非内部滚动。
+
+**为什么这个方案不够 —— 用户第三次纠正**（原话）：
+
+> 「我要的是**完全不动**，不是滚动后离上方 16px 后停止；既然高度都不需要滚动，那么右侧这一块可以**完全固定**」
+
+根因：**`sticky` 的语义就是「留在文档流 → 随滚动走一段 → 到阈值吸住」**，
+所以结构上必然存在「先滚一下」的过程，调 `top` 只能改「滚多远后吸住」，改不掉这个行为本身。
+而且 `top: 4.5rem` 虽然 ≥ header（不再被遮挡），但这 72px 的落点**并不同于它的初始位置 96px** ——
+所以滚动后卡片还是会**向上跳 24px**，这正是用户说的「滚动后离上方 16px 后停止」的观感来源。
+
+### 8.9 中间方案③：**`fixed` 的第一版（`top: 4.5rem`）** —— 偏上 24px，被 8.10 修正
+
+改成 `position: fixed` 后达到「完全不动」，但立刻暴露出**两个必须自己补偿的代价**：
+
+| # | 代价 | 原因 |
+|---|---|---|
+| 1 | 不再自动对齐 grid 列 | 脱离文档流后不再受 grid 布局约束 → **必须自己算 `left`** |
+| 2 | 丢掉文档流提供的上边距 | 容器 `py-10`（2.5rem）不再推它 → **必须显式加进 `top`** |
+
+第 2 点就是用户报告的「**初始高度不对**」：
+
+> 「初始高度不对，原来的初始高度是多少，现在怎么成16px了」
+
+- **原来的初始高度 = `header 3.5rem(56px)` + 容器 `py-10 2.5rem(40px)` = 96px**（此时 `aside` 还是静态排布，落在文档流里）。
+- 我写的 `top: 4.5rem`(72px) → **比原来偏上 24px**（= 96 − 72）。
+- 用户口中「16px」是把这 24px 偏差与其他间距一起估的约数；真值是 **24px**。
+
+→ 见 8.10 修正。
+
+### 8.10 最终方案：**`position: fixed` 完全固定** ✅
+
+```css
+@media (min-width: 64rem) {              /* lg */
+  aside.aside-fixed {
+    position: fixed;
+    top: 6rem;                           /* = header 3.5rem + 容器 py-10 2.5rem = 96px */
+    --aside-pad: 2rem;
+    --aside-inner: calc(min(100vw, 92.5rem) - 2 * var(--aside-pad));
+    left: calc(max(0px, (100vw - 92.5rem) / 2) + var(--aside-inner) - 270px);
+    max-height: calc(100vh - 6rem - 1.5rem);
+    overflow-y: auto;
+    z-index: 20;
+  }
+  @media (min-width: 80rem) {            /* xl:px-10 */
+    aside.aside-fixed { --aside-pad: 2.5rem; }
+  }
+}
+```
+
+- **`top` 推导 —— ⚠️ 只有两项，千万别自作主张加第三项**：
+
+  | 组成 | 值 | 来源 |
+  |---|---|---|
+  | header 高度 | 3.5rem (56px) | EJS 第 337 行 `h-14 sticky top-0 z-50` |
+  | 容器上内边距 | 2.5rem (40px) | EJS 第 376 行 `py-10` —— **fixed 丢掉的就是这一项** |
+  | **合计** | **6rem (96px)** | = 改动前的静态落点 |
+
+  **⚠️⚠️ 血泪教训 —— 不要加"呼吸间距"**：
+  改动前 aside 在文档流里、是 `align-items:start` 的 grid 子项，
+  **卡片顶边就是容器内容区顶边 = 96px**，这 96px **已经包含** header(56) 到卡片(40px) 的净间距。
+  我一度按"再加 1rem 呼吸"写成 **`top: 7rem`(112px)** → 比正确落点**多了 16px**，
+  用户立刻报「**比初始高度矮了大概 16px**」。
+  → **"补回丢失的间距"只补「真的丢了的那一项」（这里是 py-10），不要顺手加审美间距。**
+  → 也正因如此，守卫必须用 **`===` 恰好相等**，不能用 `≥`（见 8.7 的教训）。
+
+  `max-height` 的减数必须与 `top` 同值 → `calc(100vh - 6rem - 1.5rem)`。
+
+- **`left` 推导的妙处：纯 CSS 表达「居中的 grid 列位置」，一个 JS 都不需要**，
+  且**与 grid 的 `gap` 无关**（gap 只影响左列宽度，右列右边界是固定的）：
+
+  ```
+  left = 容器居中偏移                + 容器内容宽              − 卡片宽
+       = max(0px, (100vw - 92.5rem)/2) + (min(100vw,92.5rem) − 2×内边距) − 270px
+  ```
+
+  已在 **7 个视口宽度**（1024 / 1200 / 1280 / 1440 / 1536 / 1600 / 1920）逐像素验算一致。
+
+- **EJS**：`<aside class="hidden lg:block w-[270px] shrink-0 space-y-4 aside-fixed">`
+  —— 保留了 `w-[270px]`（供 `left` 公式减数读取、也便于 Tailwind 断点判断），
+  **移除了 `self-start`**（fixed 元素不参与 grid 布局，留着会误导）。
+
+- **`fixed` 的包含块前提**（已核查）：祖先链上若有 `transform` / `filter` / `perspective` / `contain`
+  会破坏 `fixed`（退化成相对该祖先定位）。本页祖先链**没有**（`blur-*` 在无关背景 div 上）。
+
+- **收益**：右侧卡片从头到尾**一个像素都不动**，且初始位置与改动前**完全一致**（顶部 96px 落点已由 `top` 精确还原）。
+
+### 8.10b ⚠️ 排查「高度对不上」类问题的有效方法
+
+本次「矮了 16px」的定位过程值得复用：
+
+1. **先把两个状态的落点写成算式，做差**——
+   改动前 `header 56 + py-10 40 = 96px`；当前 `top: 7rem = 112px`；差 **16px** —— 与用户观感**精确吻合**。
+   → **"差多少 px" 是最强的线索**：差值能直接指向"哪一项被多加/漏加了"。
+2. **不要指望 jsdom 量几何**：jsdom **不做布局**，`getBoundingClientRect()` 恒为 `0`，
+   computed style 也拿不到外部 CSS 的值 —— 我在 EJS 里插了诊断脚本 + jsdom 跑，全是 0，**白跑一趟**。
+   （该诊断脚本已删除，`data-layout-shell` 标记也已还原。）
+3. **卡片 padding 要先排除**：两侧卡片都是 `p-5`(1.25rem)，两种状态下一致 → 差异**只可能在 `top`**。
+   → 先证明"不变量相等"，就能把问题**收敛到唯一变量**上。
+
+
+### 8.11 ⚠️ 关键坑（跨阶段通用，仍然有效）：手写 CSS 必须显式声明工具类
+
+`top: 6rem` / `left: calc(...)` / `z-index: 20` / `max-height: calc(...)` 这些值
+**都不在 Tailwind 构建产物里**（构建时 EJS 里写的不是这些值）。
+只改 EJS 的 class **不生效**；重建 Tailwind 又会覆盖手写段。
+→ 一律写进 `TimelyBlogTheme.css` 末尾 banner 段。
+
+> 推广：**改任何 Tailwind 任意值类（`top-[...]` / `z-N`）前，先 grep 构建产物确认它已生成**；
+> 没有就写在 banner 段，别指望改个 class 名就自动有样式。
+
+---
+
+## 阶段 9 · 容器收窄居中 + 两侧内边距统一 + 详情页顶边对齐 ✅
+
+用户诉求（一次提出三点，实际是**三个不同的问题**）：
+
+> 「右侧的侧边栏宽一点吧，右侧的空白区域有点大，或者说目录，侧边栏都宽一点？
+>  让两边的边框宽度一致？」
+
+追问澄清后拿到真实诉求：
+
+> 「列表页左边和侧边栏右边，**右边的空白宽度比左边的空白宽度要大**，不协调，
+>  **整体内容区域不是居中的**」
+
+### 9.1 先厘清「不一致」到底指什么（避免误改）
+
+原始表述容易理解成「两列不等宽，要改成等宽」。实测后发现三件事完全独立：
+
+| # | 现象 | 性质 |
+|---|---|---|
+| 1 | 右侧空白比左侧大 | **结构性**：侧栏 + 列间距 = 318px 全压在右侧 |
+| 2 | 左侧卡片 `p-5 md:p-6`(24px) vs 右侧卡片 `p-5`(20px) | **真实的不一致**，可修 |
+| 3 | 详情页正文比侧栏低 40px | **真正的 bug**，可修 |
+
+**关键认知（写进结论）**：「正文列视觉居中」与「整块居中」**互斥**。
+只要正文与侧栏并排，正文列的视觉重心必然偏左。收窄容器能让**整块**左右留白对称，
+但正文列的中心线仍不会落在视口中心 —— 除非让正文自己居中（那侧栏就得压住正文或跑出视口）。
+
+### 9.2 量化「不居中」
+
+| 量 | 值（vw=1600） |
+|---|---|
+| 容器内容宽 | 1520px（`max-w-[100rem]` 贴满，两侧留白 0） |
+| 正文列宽 | 1202px |
+| 正文列视觉中心 | 641px |
+| 视口中心 | 800px |
+| **偏离** | **159px** ← 「看起来不居中」的量化值 |
+
+### 9.3 修复①：容器收窄，让整块居中
+
+`max-w-[100rem]`(1600) → **`max-w-[92.5rem]`(1480)**，仍 `mx-auto`：
+
+| 视口 | 整块两侧留白 | 正文列宽 |
+|---|---|---|
+| 1600 | **60px / 60px（对称）** | 1082px |
+| 1920 | 220px / 220px | 1082px |
+
+⚠️ **必须同步改 4 处**（否则 header / 页脚会比主体宽，露出错位）：
+header 内层、主体容器、详情页内层、页脚内层。
+
+### 9.4 修复②：两侧卡片内边距统一为 `p-5 md:p-6`
+
+右侧卡片 `p-5`(20px) → `p-5 md:p-6`(24px)，与左侧文章卡一致。
+
+### 9.5 修复③：详情页顶边对齐（真正的 bug）
+
+**根因**：`aside` 是 `position: fixed`，top 恒为 96px；而详情页正文多叠了一层 `py-10`：
+
+| 页面 | 正文顶边 | 与侧栏(96px) |
+|---|---|---|
+| 列表页 | 56 + 40(shell `py-10`) = **96px** | 齐 |
+| 详情页 | 56 + 40(shell) + 40(详情层 `py-10`) = **136px** | **低 40px** ← 用户看到的「没对齐」 |
+
+**修法**：详情视图根 `py-10 pb-28 md:pb-14` → **`pt-0 pb-28 md:pb-14`**。
+
+⚠️ **只去掉垂直上内边距，`px` 两层必须保留** —— 去掉水平内边距会正文贴边，
+这是此前修过的真实回归（原注释专门写了「刻意保留，别当重复样式清理」）。
+本次是把那句话拆成两半：**水平保留、垂直上移除**。
+
+**为什么不做「侧栏在详情页跟着下移」**：侧栏是纯 CSS `fixed`，做不到按页面动态改 `top`
+（要读 DOM 判断当前视图）；且用户明确「不想看到跳动」。→ 改正文侧才是正解。
+
+### 9.6 ⚠️ Tailwind 任意值类陷阱（本次又踩到）
+
+`max-w-[92.5rem]` **不在 Tailwind 构建产物里** —— Tailwind 只扫描构建时 EJS 里出现过的类名，
+产物里只有旧的 `.max-w-\[100rem\]`。只改 EJS 的 class 名 → **该 max-width 静默失效**（页面变超宽）。
+
+→ 手写进 `TimelyBlogTheme.css` 末尾 banner 段，并加守卫（见 9.7 的 L9）。
+
+### 9.7 新增守卫（4 条，全部实测能捕获回归）
+
+| 守卫 | 防的是 |
+|---|---|
+| L8 两侧卡片内边距一致 | 左 `p-5 md:p-6` vs 右 `p-5`（回到 24/20 不齐） |
+| L9 Tailwind 产物含 `.max-w-[Nrem]` 声明 | EJS 新写的任意值类没生成样式（静默失效） |
+| 详情视图根 `pt-0` + 保留 `px` | 改回 `py-10`（顶边又错 40px）或删掉 `px`（正文贴边） |
+| 容器宽度的**小数**支持 | 正则只写 `\d+` → 匹配不到 `92.5`，依赖它的断言连环误报 |
+
+**⚠️ 本次踩到的三个断言写法坑**（都记进 MEMORY）：
+
+1. **CSS 转义 vs HTML 原样**：CSS 里是 `.max-w-\[92\.5rem\]`（转义），
+   HTML 渲染结果是 `max-w-[92.5rem]`（原样）。**拿 CSS 的转义去匹配 HTML 永远匹配不到**（静默变 0 层）。
+2. **`[^"]*` 会跨标签**：`class="[^"]*max-w-...` 中间不出现引号就能一路匹配到后面的元素
+   → 数出 3/4 层。**要限定在单标签内，用 `[^"<>]*`**。
+3. **`\b` 别用在带连字符的类名上**：`\bpx-5\b` 的边界语义在 `-` 处失灵，直接子串匹配更稳。
+4. **共享宽度类会误伤**：收窄容器后 header/页脚也是 `max-w-[92.5rem] px-5`，
+   所以锁定「主体容器」必须带上 `py-10 ... pb-28 ... md:pb-14` 这个尾巴。
+
+### 9.8 测试
+
+| 套件 | mock·local | mock·as-is | 真实库 |
+|---|---|---|---|
+| `smoke` | **129** | **128** | **103**（`POST_ID=HvzRWi2r9bUh`）|
+| `dom` | **63** | — | — |
+| `unit` / `script-test` | **5** / **24** | — | — |
+
+三处顶边全部对齐到 96px：列表页正文 96 / 详情页正文 96 / 侧栏 96。
+
+---
+
+## 阶段 10：重建 Tailwind v4 构建链路（流程性变更）
+
+### 10.1 问题
+
+用户提问：「css 不是 tailwindcss 编译后的产物么，我不应该只改 ejs 么，然后编译 css 么？」
+
+核对后发现：`TimelyBlogTheme.css` 头部标着 `tailwindcss v4.2.2`，但仓库里
+**没有任何构建配置**（无 `package.json` / `tailwind.config` / `input.css` / 依赖）——
+它是一次性产出后**手工维护**的产物。git 历史印证：每次改动都是直接手写 CSS 行。
+
+**由此产生的真实故障**：容器宽度改成 98rem 后，
+`left: calc(... (100vw - 95rem) ...)` 这处**漏改**（仍是 95rem），
+而旧 smoke 断言读的是 EJS 与 `--aside-inner` 的 98rem —— **完全检测不到这行**。
+
+### 10.2 方案
+
+重建构建链路 + 布局值变量化。
+
+**新增文件**：
+- `package.json`：`npm run build`（`tailwindcss -i ./src/input.css -o ./TimelyBlogTheme.css --minify`）、`npm run dev`（watch）
+- `src/input.css`：唯一手写源 = `@import "tailwindcss"` + `@source`（EJS/JS/HTML）+ `@theme` + 手写样式段
+
+**产物**：80KB → 52KB；任意值类（`max-w-[98rem]` 等）自动生成。
+
+### 10.3 布局联动值变量化
+
+```css
+:root {
+  --layout-container: 98rem;   /* 容器总宽 */
+  --layout-aside: 270px;       /* 侧栏宽 */
+  --layout-top: 6rem;          /* 侧栏顶边 */
+}
+```
+
+`left` 与 `max-height` 改为引用变量 → **改一处全联动**。
+实测：只改 `--layout-container: 88rem`，`left` 公式自动跟随。
+
+**EJS 侧仍有镜像值**（`max-w-[Nrem]` ×4、`w-[270px]` ×2）需同步 —— smoke 新增 L5b 守卫比对。
+
+### 10.4 迁移踩坑
+
+| # | 坑 | 修法 |
+|---|---|---|
+| 1 | `@theme` 变量提取漏行 → `--color-accent` 没进 `@theme` → EJS 的 `dark:bg-accent` 等类**整体不生成**（静默丢失） | 补进 `@theme` |
+| 2 | minify 后 CSS 单行，旧正则 `\{[\s\S]*?\n  \}` 失配 | 改**花括号配对**提取规则体 |
+| 3 | 旧产物有大量「源码已无」的僵尸类（`h-20`/`animate-pulse`/`w-3/4`…） | 重建后自动清理 |
+| 4 | 选择器集合 diff 对 minified CSS 解析不准，误报「类丢失」 | 判定是否真丢失：**在源码里 `count()` 该 class** |
+
+### 10.5 smoke 断言改造（L3~L5b 变量感知）
+
+- 新增：`:root` 必须定义 `--layout-top` / `--layout-container` / `--layout-aside`
+- `top` 必须引用 `var(--layout-top)`；`max-height` 必须以 `var(--layout-top)` 作减数
+- `left` 必须引用 `var(--layout-container)` / `var(--layout-aside)`
+- 新增 L5b：**变量值 === EJS class 读出的值**（一致性锚点）
+
+### 10.6 测试
+
+| 套件 | mock·local | mock·as-is | 真实库 |
+|---|---|---|---|
+| `smoke` | **134** | **133** | **108**（`POST_ID=HvzRWi2r9bUh`）|
+| `dom` | **63** | — | — |
+| `unit` / `script-test` | **5** / **24** | — | — |
+
+### 10.7 新工作流（取代旧「改 EJS + 手写 CSS」）
+
+1. 改样式 → 改 `src/input.css`（或 EJS 的 class）
+2. `npm run build`
+3. 存盘即生效，浏览器直接看
+4. 跑 smoke 核对联动值
+
+⚠️ **`TimelyBlogTheme.css` 是产物，不要再直接编辑**。
